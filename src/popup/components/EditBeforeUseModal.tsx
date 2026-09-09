@@ -2,6 +2,7 @@ import { Check, Copy, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { detectLineDirection } from "../../shared/bidi";
 import type { Prompt, TextDirection, Translator } from "../../shared/types";
+import { MarkdownPromptEditor } from "./MarkdownPromptEditor";
 import { trapModalFocus } from "./modalKeyboard";
 
 function lineAtCaret(value: string, caret: number) {
@@ -129,10 +130,9 @@ export function EditBeforeUseModal({
             <X aria-hidden="true" size={20} />
           </button>
         </header>
-        <BidiEditor
+        <MarkdownPromptEditor
           ariaLabel={t("content")}
           autoFocus
-          fallbackDirection={fallbackDirection}
           onChange={setContent}
           value={content}
         />

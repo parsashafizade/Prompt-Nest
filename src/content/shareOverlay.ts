@@ -1,4 +1,9 @@
-import type { Language } from "../shared/types";
+import {
+  createShareCardRenderLines,
+  createShareCardTitleLines,
+  type ShareCardRenderLine,
+} from "../shared/shareCard";
+import type { Language, TextDirection } from "../shared/types";
 
 export interface ShareOverlayPayload {
   title: string;
@@ -6,8 +11,27 @@ export interface ShareOverlayPayload {
   language: Language;
 }
 
-/** This function is serialized by browser.scripting.executeScript and must remain self-contained. */
+export interface PreparedShareOverlayPayload {
+  titleLines: Array<{ text: string; direction: TextDirection }>;
+  bodyLines: ShareCardRenderLine[];
+  language: Language;
+}
+
+export function prepareShareOverlayPayload(payload: ShareOverlayPayload): PreparedShareOverlayPayload {
+  return {
+    titleLines: createShareCardTitleLines(payload.title, payload.language),
+    bodyLines: createShareCardRenderLines(payload.content),
+    language: payload.language,
+  };
+}
+
+/** Direct-call wrapper used outside scripting serialization, including source-level consumers. */
 export async function installShareOverlay(payload: ShareOverlayPayload) {
+  return installPreparedShareOverlay(prepareShareOverlayPayload(payload));
+}
+
+/** This function is serialized by browser.scripting.executeScript and must remain self-contained. */
+export async function installPreparedShareOverlay(payload: PreparedShareOverlayPayload) {
   const OVERLAY_ID = "prompt-nest-share-overlay";
   document.getElementById(OVERLAY_ID)?.remove();
 
@@ -46,7 +70,7 @@ export async function installShareOverlay(payload: ShareOverlayPayload) {
   root.dir = isFa ? "rtl" : "ltr";
   root.innerHTML = `
     <style>
-      *{box-sizing:border-box} .backdrop{position:fixed;inset:0;display:grid;place-items:center;padding:24px;background:rgba(17,14,21,.54);backdrop-filter:blur(4px);font-family:PromptNestCardPersian,PromptNestCardLatin,sans-serif;color:#302b38}
+      *{box-sizing:border-box}.backdrop{position:fixed;inset:0;display:grid;place-items:center;padding:24px;background:rgba(17,14,21,.54);backdrop-filter:blur(4px);font-family:PromptNestCardPersian,PromptNestCardLatin,sans-serif;color:#302b38}
       .panel{width:min(860px,96vw);max-height:92vh;display:grid;grid-template-columns:minmax(260px,1fr) 252px;gap:24px;padding:24px;border:1px solid rgba(117,103,143,.16);border-radius:12px;background:#eeebf2;box-shadow:8px 8px 12px rgba(13,10,17,.34),-8px -8px 12px rgba(255,255,255,.14)}
       .preview{min-width:0;min-height:332px;display:grid;place-items:center;padding:16px;border-radius:12px;box-shadow:inset 5px 5px 12px #d2ced9,inset -5px -5px 12px #fff;overflow:auto}
       canvas{display:block;max-width:100%;max-height:72vh;border-radius:12px;box-shadow:6px 6px 10px #c9c5d1,-6px -6px 10px #fff;background:#e8e4ed}
@@ -112,14 +136,6 @@ export async function installShareOverlay(payload: ShareOverlayPayload) {
   };
   let ratio: RatioKey = "square";
 
-  const detectDirection = (line: string): CanvasDirection => {
-    const hasArabic = /[\u0600-\u06ff\u0750-\u077f\u0870-\u089f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]/u.test(line);
-    const hasLatin = /[A-Za-z\u00c0-\u024f\u1e00-\u1eff]/u.test(line);
-    if (hasArabic) return "rtl";
-    if (hasLatin) return "ltr";
-    return isFa ? "rtl" : "ltr";
-  };
-
   const roundedRect = (x: number, y: number, width: number, height: number, radius: number) => {
     ctx.beginPath();
     ctx.roundRect(x, y, width, height, radius);
@@ -147,8 +163,8 @@ export async function installShareOverlay(payload: ShareOverlayPayload) {
     return result;
   };
 
-  const drawLogicalLines = (
-    text: string,
+  const drawTitleLines = (
+    lines: PreparedShareOverlayPayload["titleLines"],
     x: number,
     y: number,
     maxWidth: number,
@@ -156,25 +172,71 @@ export async function installShareOverlay(payload: ShareOverlayPayload) {
     maxLines: number,
   ) => {
     let drawn = 0;
-    const logicalLines = text.split("\n");
-    for (let logicalIndex = 0; logicalIndex < logicalLines.length; logicalIndex += 1) {
-      const logicalLine = logicalLines[logicalIndex];
-      const direction = detectDirection(logicalLine);
-      const wrapped = wrapLine(logicalLine, maxWidth);
+    for (let logicalIndex = 0; logicalIndex < lines.length; logicalIndex += 1) {
+      const logicalLine = lines[logicalIndex];
+      const wrapped = wrapLine(logicalLine.text, maxWidth);
       for (let visualIndex = 0; visualIndex < wrapped.length; visualIndex += 1) {
-        const visualLine = wrapped[visualIndex];
         if (drawn >= maxLines) return drawn;
+        const hasMore = logicalIndex < lines.length - 1 || visualIndex < wrapped.length - 1;
         const isLastAllowed = drawn === maxLines - 1;
-        const hasMore = logicalIndex < logicalLines.length - 1 || visualIndex < wrapped.length - 1;
-        let output = visualLine;
-        if (isLastAllowed && hasMore) output = `${visualLine.replace(/[.…]+$/u, "")}…`;
-        ctx.direction = direction;
-        ctx.textAlign = direction === "rtl" ? "right" : "left";
-        ctx.fillText(output, direction === "rtl" ? x + maxWidth : x, y + drawn * lineHeight, maxWidth);
+        const line = isLastAllowed && hasMore
+          ? `${wrapped[visualIndex].replace(/[.…]+$/u, "")}…`
+          : wrapped[visualIndex];
+        ctx.direction = logicalLine.direction;
+        ctx.textAlign = logicalLine.direction === "rtl" ? "right" : "left";
+        ctx.fillText(line, logicalLine.direction === "rtl" ? x + maxWidth : x, y + drawn * lineHeight, maxWidth);
         drawn += 1;
       }
     }
     return drawn;
+  };
+
+  const lineFont = (line: ShareCardRenderLine, baseSize: number) => {
+    const headingScale = line.headingLevel === 1 ? 1.38
+      : line.headingLevel === 2 ? 1.26
+        : line.headingLevel === 3 ? 1.16
+          : line.headingLevel ? 1.08 : 1;
+    const size = Math.round(baseSize * headingScale);
+    const style = line.emphasis || line.math ? "italic" : "normal";
+    const weight = line.headingLevel || line.strong ? 600 : 400;
+    const family = line.code
+      ? "PromptNestCardLatin,PromptNestCardPersian,monospace"
+      : line.math ? "serif" : "PromptNestCardPersian,PromptNestCardLatin,sans-serif";
+    return { size, value: `${style} ${weight} ${size}px ${family}` };
+  };
+
+  const drawBodyLines = (
+    lines: ShareCardRenderLine[],
+    x: number,
+    y: number,
+    maxWidth: number,
+    baseSize: number,
+    bottom: number,
+  ) => {
+    let baseline = y;
+    for (const logicalLine of lines) {
+      const font = lineFont(logicalLine, baseSize);
+      const lineHeight = font.size * 1.65;
+      ctx.font = font.value;
+      const wrapped = wrapLine(logicalLine.text, maxWidth);
+      for (const visualLine of wrapped) {
+        if (baseline + lineHeight > bottom) return;
+        if (logicalLine.code) {
+          ctx.fillStyle = "#e5e0ea";
+          ctx.fillRect(x - 8, baseline - font.size * 1.05, maxWidth + 16, lineHeight);
+        }
+        if (logicalLine.blockquote) {
+          ctx.fillStyle = "#8d7ea4";
+          ctx.fillRect(logicalLine.direction === "rtl" ? x + maxWidth + 7 : x - 10, baseline - font.size, 3, lineHeight);
+        }
+        ctx.fillStyle = logicalLine.link ? "#6952d6"
+          : logicalLine.blockquote ? "#6f6679" : "#3a3442";
+        ctx.direction = logicalLine.direction;
+        ctx.textAlign = logicalLine.direction === "rtl" ? "right" : "left";
+        ctx.fillText(visualLine, logicalLine.direction === "rtl" ? x + maxWidth : x, baseline, maxWidth);
+        baseline += lineHeight;
+      }
+    }
   };
 
   const render = () => {
@@ -210,8 +272,8 @@ export async function installShareOverlay(payload: ShareOverlayPayload) {
     const bodySize = Math.round(short * (ratio === "story" ? 0.038 : 0.032));
     const titleY = pad * 1.85;
     ctx.fillStyle = "#6d607f";
-    ctx.font = `600 ${titleSize}px PromptNestCardPersian, PromptNestCardLatin, sans-serif`;
-    const titleLines = drawLogicalLines(payload.title, innerX, titleY, maxWidth, titleSize * 1.45, ratio === "wide" ? 2 : 3);
+    ctx.font = `600 ${titleSize}px PromptNestCardPersian,PromptNestCardLatin,sans-serif`;
+    const titleLines = drawTitleLines(payload.titleLines, innerX, titleY, maxWidth, titleSize * 1.45, ratio === "wide" ? 2 : 3);
 
     const dividerY = titleY + titleLines * titleSize * 1.45 + titleSize * 0.5;
     ctx.fillStyle = "#b7aec3";
@@ -220,17 +282,12 @@ export async function installShareOverlay(payload: ShareOverlayPayload) {
 
     const bodyY = dividerY + bodySize * 1.8;
     const footerY = height - pad * 1.6;
-    const availableHeight = footerY - bodyY - bodySize;
-    const lineHeight = bodySize * 1.65;
-    const maxLines = Math.max(2, Math.floor(availableHeight / lineHeight));
-    ctx.fillStyle = "#3a3442";
-    ctx.font = `400 ${bodySize}px PromptNestCardPersian, PromptNestCardLatin, sans-serif`;
-    drawLogicalLines(payload.content, innerX, bodyY, maxWidth, lineHeight, maxLines);
+    drawBodyLines(payload.bodyLines, innerX, bodyY, maxWidth, bodySize, footerY - bodySize);
 
     ctx.direction = isFa ? "rtl" : "ltr";
     ctx.textAlign = isFa ? "right" : "left";
     ctx.fillStyle = "#8a8293";
-    ctx.font = `400 ${Math.round(short * 0.02)}px PromptNestCardPersian, PromptNestCardLatin, sans-serif`;
+    ctx.font = `400 ${Math.round(short * 0.02)}px PromptNestCardPersian,PromptNestCardLatin,sans-serif`;
     ctx.fillText("Prompt Nest", isFa ? width - innerX : innerX, footerY);
   };
 

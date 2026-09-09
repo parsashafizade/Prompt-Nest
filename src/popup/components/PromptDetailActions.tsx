@@ -1,8 +1,10 @@
-import { Check, Copy, Pencil, X } from "lucide-react";
+import { Check, Copy, FilePenLine, Pencil, X } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
 import type { Language, Prompt, TextDirection, Translator } from "../../shared/types";
 import { BidiText } from "./BidiText";
 import { EditBeforeUseModal } from "./EditBeforeUseModal";
+import { EditPromptModal } from "./EditPromptModal";
+import { ReadonlyMarkdown } from "./ReadonlyMarkdown";
 import { ShareCardTrigger } from "./ShareCardTrigger";
 import { trapModalFocus } from "./modalKeyboard";
 
@@ -30,6 +32,7 @@ export function PromptDetailActions({
   onNotice,
 }: PromptDetailActionsProps) {
   const [editing, setEditing] = useState(false);
+  const [editingToSave, setEditingToSave] = useState(false);
   const [copied, setCopied] = useState(false);
   const [shareFallback, setShareFallback] = useState(false);
 
@@ -56,6 +59,18 @@ export function PromptDetailActions({
     );
   }
 
+  if (editingToSave) {
+    return (
+      <EditPromptModal
+        onClose={() => setEditingToSave(false)}
+        onNotice={onNotice}
+        onSave={onSaveContent}
+        prompt={prompt}
+        t={t}
+      />
+    );
+  }
+
   return (
     <div className="dialog-backdrop" role="presentation">
       <section aria-labelledby="prompt-detail-title" aria-modal="true" className="dialog-panel" onKeyDown={trapModalFocus} role="dialog">
@@ -64,12 +79,15 @@ export function PromptDetailActions({
             <BidiText fallbackDirection={fallbackDirection} text={prompt.title} />
           </h2>
           <ShareCardTrigger language={language} onFallback={() => setShareFallback(true)} prompt={prompt} t={t} />
+          <button aria-label={t("editPrompt")} className="icon-button compact" onClick={() => setEditingToSave(true)} type="button">
+            <FilePenLine aria-hidden="true" size={20} />
+          </button>
           <button aria-label={t("close")} className="icon-button compact" onClick={onClose} type="button">
             <X aria-hidden="true" size={20} />
           </button>
         </header>
         <div className="prompt-view">
-          <BidiText fallbackDirection={fallbackDirection} text={prompt.content} />
+          <ReadonlyMarkdown value={prompt.content} />
         </div>
         <div className="action-grid">
           <button autoFocus className={`primary-button btn-primary ${copied ? "copy-success" : ""}`} onClick={copy} type="button">

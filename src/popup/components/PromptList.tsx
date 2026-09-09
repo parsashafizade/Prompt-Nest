@@ -4,6 +4,7 @@ import type { DragPayload, Folder, Prompt, PromptSortMode, TextDirection, Transl
 import { sortPrompts, sortedByOrder } from "../../shared/utils";
 import { BidiText } from "./BidiText";
 import { writeDragPayload } from "./DragDropTree";
+import { ReadonlyMarkdown } from "./ReadonlyMarkdown";
 
 interface PromptMenuProps {
   prompt: Prompt;
@@ -210,7 +211,7 @@ const PromptRow = memo(function PromptRow({
       <FileText aria-hidden="true" className="prompt-icon" size={16} />
       <button className="item-main" onClick={openPrompt} type="button">
         <BidiText className="item-title" fallbackDirection={fallbackDirection} text={prompt.title} />
-        {prompt.content && <BidiText className="item-preview" fallbackDirection={fallbackDirection} text={prompt.content} />}
+        {prompt.content && <ReadonlyMarkdown className="item-preview" compact value={prompt.content} />}
         {searchMode && parent && <div className="item-subtitle">{t("inFolder", { folder: parent.name })}</div>}
       </button>
       <PromptMenu

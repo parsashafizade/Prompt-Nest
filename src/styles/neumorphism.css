@@ -843,6 +843,300 @@ select:focus-visible {
   white-space: pre;
 }
 
+.markdown-editor {
+  --markdown-editor-min-height: 180px;
+  width: 100%;
+  min-height: var(--markdown-editor-min-height);
+  max-height: 265px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: inset 3px 3px 7px var(--shadow-dark), inset -3px -3px 7px var(--shadow-light);
+}
+
+.markdown-editor:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.markdown-editor .cm-editor,
+.markdown-editor .cm-scroller {
+  min-height: var(--markdown-editor-min-height);
+  max-height: 265px;
+  color: var(--text);
+  background: transparent;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.markdown-editor .cm-scroller {
+  overflow: auto;
+  line-height: 1.6;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) transparent;
+}
+
+.markdown-editor .cm-content {
+  min-height: calc(var(--markdown-editor-min-height) - 24px);
+  padding: 12px;
+  caret-color: var(--text);
+  font-family: inherit;
+}
+
+.markdown-editor .cm-editor.cm-focused {
+  outline: none;
+}
+
+.markdown-editor .cm-line {
+  padding: 0;
+  overflow-wrap: anywhere;
+  unicode-bidi: isolate;
+}
+
+.markdown-editor .cm-line[dir="rtl"] {
+  text-align: right;
+}
+
+.markdown-editor .cm-line[dir="ltr"] {
+  text-align: left;
+}
+
+.markdown-editor .cm-cursor {
+  border-left-color: var(--text);
+}
+
+.markdown-editor .cm-selectionBackground,
+.markdown-editor .cm-content ::selection {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.markdown-editor .cm-live-heading {
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.markdown-editor .cm-live-heading-1 { font-size: 1.45em; }
+.markdown-editor .cm-live-heading-2 { font-size: 1.3em; }
+.markdown-editor .cm-live-heading-3 { font-size: 1.18em; }
+.markdown-editor .cm-live-heading-4,
+.markdown-editor .cm-live-heading-5,
+.markdown-editor .cm-live-heading-6 { font-size: 1.08em; }
+
+.markdown-editor .cm-live-strong {
+  font-weight: 600;
+}
+
+.markdown-editor .cm-live-emphasis {
+  font-style: italic;
+}
+
+.markdown-editor .cm-live-inline-code {
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-raised));
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+}
+
+.markdown-editor .cm-live-code-block {
+  max-width: 100%;
+  overflow: auto;
+  margin: 4px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  background: var(--surface-raised);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.markdown-editor .cm-live-code-line {
+  min-height: 1.6em;
+  display: block;
+  unicode-bidi: isolate;
+}
+
+.markdown-editor .cm-live-code-line[dir="rtl"] { text-align: right; }
+.markdown-editor .cm-live-code-line[dir="ltr"] { text-align: left; }
+
+.markdown-editor .cm-live-blockquote {
+  padding-inline: 8px;
+  border-inline-start: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  color: var(--muted);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.markdown-editor .cm-live-list-marker {
+  min-width: 1.2em;
+  display: inline-block;
+  margin-inline-end: 4px;
+  color: var(--accent);
+  font-weight: 600;
+  text-align: center;
+}
+
+.markdown-editor .cm-live-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.markdown-editor .cm-live-math-inline {
+  max-width: 100%;
+  display: inline-block;
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.markdown-editor .cm-live-math-block {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 4px 0;
+  padding: 8px;
+  color: var(--text);
+  text-align: center;
+}
+
+.markdown-editor .katex-display {
+  margin: 0;
+}
+
+.markdown-preview {
+  max-width: 100%;
+  color: inherit;
+  line-height: 1.6;
+}
+
+.markdown-preview-line {
+  min-height: 1.6em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: isolate;
+}
+
+.markdown-preview-line[dir="rtl"] { text-align: right; }
+.markdown-preview-line[dir="ltr"] { text-align: left; }
+
+.markdown-preview-heading {
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.markdown-preview-heading-1 { font-size: 1.45em; }
+.markdown-preview-heading-2 { font-size: 1.3em; }
+.markdown-preview-heading-3 { font-size: 1.18em; }
+.markdown-preview-heading-4,
+.markdown-preview-heading-5,
+.markdown-preview-heading-6 { font-size: 1.08em; }
+
+.markdown-preview strong { font-weight: 600; }
+.markdown-preview em { font-style: italic; }
+
+.markdown-preview code {
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-raised));
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+}
+
+.markdown-preview-code-block {
+  max-width: 100%;
+  overflow: auto;
+  margin: 4px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  background: var(--surface-raised);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.markdown-preview-code-block code {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+}
+
+.markdown-preview-code-line {
+  min-height: 1.6em;
+  display: block;
+  unicode-bidi: isolate;
+}
+
+.markdown-preview-code-line[dir="rtl"] { text-align: right; }
+.markdown-preview-code-line[dir="ltr"] { text-align: left; }
+
+.markdown-preview-blockquote {
+  padding-inline: 8px;
+  border-inline-start: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  color: var(--muted);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.markdown-preview-list-marker {
+  min-width: 1.2em;
+  display: inline-block;
+  margin-inline-end: 4px;
+  color: var(--accent);
+  font-weight: 600;
+  text-align: center;
+}
+
+.markdown-preview-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.markdown-preview-math {
+  max-width: 100%;
+  display: inline-block;
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.markdown-preview-math-block {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 4px 0;
+  padding: 8px;
+  color: var(--text);
+  text-align: center;
+}
+
+.markdown-preview .katex-display { margin: 0; }
+
+.markdown-preview-compact {
+  max-height: 3.2em;
+  display: block;
+  overflow: hidden;
+}
+
+.markdown-preview-compact .markdown-preview-heading {
+  font-size: inherit;
+}
+
+.markdown-preview-compact .markdown-preview-code-block,
+.markdown-preview-compact .markdown-preview-math-block {
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

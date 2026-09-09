@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { detectLineDirection } from "../../shared/bidi";
 import type { TextDirection, Translator } from "../../shared/types";
 import { BidiEditor } from "./EditBeforeUseModal";
+import { MarkdownPromptEditor } from "./MarkdownPromptEditor";
 import { trapModalFocus } from "./modalKeyboard";
 
 interface ItemFormModalProps {
@@ -101,9 +102,8 @@ export function ItemFormModal({
         {kind === "prompt" && mode === "add" && (
           <>
             <div className="field-label">{t("content")}</div>
-            <BidiEditor
+            <MarkdownPromptEditor
               ariaLabel={t("content")}
-              fallbackDirection={fallbackDirection}
               minHeight={145}
               onChange={(value) => { setContent(value); setError(""); }}
               value={content}

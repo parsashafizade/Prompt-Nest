@@ -12,7 +12,14 @@
     "package": "npm run build && cd dist && zip -FS -qr ../prompt-nest-extension.zip ."
   },
   "dependencies": {
+    "@codemirror/commands": "^6.11.0",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.4",
+    "@codemirror/view": "^6.43.11",
+    "@lezer/markdown": "^1.7.2",
     "idb": "^8.0.3",
+    "katex": "^0.16.47",
     "lucide-react": "^0.544.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
@@ -23,6 +30,7 @@
     "@fontsource/vazirmatn": "^5.2.6",
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^16.3.0",
+    "@types/katex": "^0.16.8",
     "@types/node": "^26.5.0",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",

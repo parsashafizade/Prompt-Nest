@@ -4,8 +4,8 @@ import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { BidiEditor } from "./EditBeforeUseModal";
 
-function EditorHarness() {
-  const [value, setValue] = useState("");
+function EditorHarness({ initialValue = "" }: { initialValue?: string }) {
+  const [value, setValue] = useState(initialValue);
   return (
     <BidiEditor
       ariaLabel="Prompt content"
@@ -16,37 +16,59 @@ function EditorHarness() {
   );
 }
 
-function typeLine(line: HTMLDivElement, text: string) {
-  line.textContent = text;
-  line.focus();
-  const range = document.createRange();
-  range.selectNodeContents(line);
-  range.collapse(false);
-  const selection = window.getSelection()!;
-  selection.removeAllRanges();
-  selection.addRange(range);
-  fireEvent.input(line);
+function inputAt(editor: HTMLTextAreaElement, value: string, caret = value.length) {
+  editor.value = value;
+  editor.setSelectionRange(caret, caret);
+  fireEvent.input(editor);
+}
+
+function moveCaret(editor: HTMLTextAreaElement, caret: number) {
+  editor.setSelectionRange(caret, caret);
+  fireEvent(document, new Event("selectionchange"));
 }
 
 describe("BidiEditor", () => {
-  it("keeps the caret on newly-created lines and classifies each line live", () => {
-    const { container } = render(<EditorHarness />);
+  it("uses a native textarea and updates direction from typed text", () => {
+    const { getByRole } = render(<EditorHarness />);
+    const editor = getByRole("textbox", { name: "Prompt content" }) as HTMLTextAreaElement;
 
-    typeLine(container.querySelectorAll<HTMLDivElement>(".bidi-editor-line")[0], "Hello");
-    fireEvent.keyDown(container.querySelectorAll<HTMLDivElement>(".bidi-editor-line")[0], { key: "Enter" });
-    typeLine(container.querySelectorAll<HTMLDivElement>(".bidi-editor-line")[1], "سلام");
-    fireEvent.keyDown(container.querySelectorAll<HTMLDivElement>(".bidi-editor-line")[1], { key: "Enter" });
-    typeLine(container.querySelectorAll<HTMLDivElement>(".bidi-editor-line")[2], "English first و فارسی");
-    fireEvent.keyDown(container.querySelectorAll<HTMLDivElement>(".bidi-editor-line")[2], { key: "Enter" });
-    typeLine(container.querySelectorAll<HTMLDivElement>(".bidi-editor-line")[3], "123 !!!");
+    expect(editor.tagName).toBe("TEXTAREA");
 
-    const lines = [...container.querySelectorAll<HTMLDivElement>(".bidi-editor-line")];
-    expect(lines.map((line) => line.textContent)).toEqual([
-      "Hello",
-      "سلام",
-      "English first و فارسی",
-      "123 !!!",
-    ]);
-    expect(lines.map((line) => line.dir)).toEqual(["ltr", "rtl", "rtl", "ltr"]);
+    inputAt(editor, "Hello");
+    expect(editor.dir).toBe("ltr");
+
+    inputAt(editor, "سلام");
+    expect(editor.dir).toBe("rtl");
+
+    inputAt(editor, "English first و فارسی");
+    expect(editor.dir).toBe("rtl");
+
+    inputAt(editor, "123 !!!");
+    expect(editor.dir).toBe("rtl");
+  });
+
+  it("reclassifies from the caret line and retains direction on neutral lines", () => {
+    const value = "Hello\nسلام\nEnglish first و فارسی\n123 !!!";
+    const { getByRole } = render(<EditorHarness initialValue={value} />);
+    const editor = getByRole("textbox", { name: "Prompt content" }) as HTMLTextAreaElement;
+    editor.focus();
+
+    moveCaret(editor, 1);
+    expect(editor.dir).toBe("ltr");
+
+    moveCaret(editor, value.indexOf("سلام") + 1);
+    expect(editor.dir).toBe("rtl");
+
+    moveCaret(editor, value.indexOf("English first") + 1);
+    expect(editor.dir).toBe("rtl");
+
+    moveCaret(editor, value.indexOf("123") + 1);
+    expect(editor.dir).toBe("rtl");
+
+    moveCaret(editor, 1);
+    expect(editor.dir).toBe("ltr");
+
+    moveCaret(editor, value.indexOf("123") + 1);
+    expect(editor.dir).toBe("ltr");
   });
 });

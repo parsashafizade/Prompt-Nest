@@ -1,5 +1,9 @@
 import { detectLineDirection } from "./bidi";
-import type { Language } from "./types";
+import {
+  createMarkdownPreviewBlocks,
+  createMarkdownPreviewModel,
+} from "./markdownPreview";
+import type { Language, TextDirection } from "./types";
 
 export type ShareCardRatio = "story" | "square" | "wide";
 
@@ -9,11 +13,59 @@ export interface ShareCardContent {
   language: Language;
 }
 
+export interface ShareCardRenderLine {
+  text: string;
+  direction: TextDirection;
+  headingLevel?: number;
+  blockquote?: boolean;
+  strong?: boolean;
+  emphasis?: boolean;
+  code?: boolean;
+  link?: boolean;
+  math?: boolean;
+}
+
 const CARD_SIZES: Record<ShareCardRatio, [number, number]> = {
   story: [720, 1280],
   square: [1080, 1080],
   wide: [1200, 675],
 };
+
+export function createShareCardTitleLines(title: string, language: Language) {
+  const fallbackDirection = language === "fa" ? "rtl" : "ltr";
+  return title.split("\n").map((text) => ({
+    text,
+    direction: detectLineDirection(text, fallbackDirection),
+  }));
+}
+
+export function createShareCardRenderLines(content: string): ShareCardRenderLine[] {
+  return createMarkdownPreviewBlocks(createMarkdownPreviewModel(content)).flatMap((block) => {
+    if (block.kind === "code") {
+      return block.lines.map(({ text, direction }) => ({ text, direction, code: true }));
+    }
+    if (block.kind === "math") {
+      return [{
+        text: block.expression,
+        direction: "ltr" as const,
+        math: true,
+      }];
+    }
+    return [{
+      text: block.segments.map((segment) => (
+        segment.kind === "text" ? segment.text : segment.expression
+      )).join(""),
+      direction: block.direction,
+      headingLevel: block.headingLevel,
+      blockquote: block.blockquote,
+      strong: block.segments.some((segment) => segment.kind === "text" && segment.strong),
+      emphasis: block.segments.some((segment) => segment.kind === "text" && segment.emphasis),
+      code: block.segments.some((segment) => segment.kind === "text" && segment.code),
+      link: block.segments.some((segment) => segment.kind === "text" && segment.link),
+      math: block.segments.some((segment) => segment.kind === "math"),
+    }];
+  });
+}
 
 function wrapLine(context: CanvasRenderingContext2D, line: string, maxWidth: number) {
   if (!line) return [""];
@@ -37,10 +89,9 @@ function wrapLine(context: CanvasRenderingContext2D, line: string, maxWidth: num
   return result;
 }
 
-function drawLogicalLines(
+function drawTitleLines(
   context: CanvasRenderingContext2D,
-  text: string,
-  fallbackDirection: "ltr" | "rtl",
+  lines: ReturnType<typeof createShareCardTitleLines>,
   x: number,
   y: number,
   maxWidth: number,
@@ -48,28 +99,109 @@ function drawLogicalLines(
   maxLines: number,
 ) {
   let drawn = 0;
-  const logicalLines = text.split("\n");
-  for (let logicalIndex = 0; logicalIndex < logicalLines.length; logicalIndex += 1) {
-    const logicalLine = logicalLines[logicalIndex];
-    const direction = detectLineDirection(logicalLine, fallbackDirection);
-    const wrapped = wrapLine(context, logicalLine, maxWidth);
+  for (let logicalIndex = 0; logicalIndex < lines.length; logicalIndex += 1) {
+    const logicalLine = lines[logicalIndex];
+    const wrapped = wrapLine(context, logicalLine.text, maxWidth);
     for (let visualIndex = 0; visualIndex < wrapped.length; visualIndex += 1) {
       if (drawn >= maxLines) return drawn;
-      const hasMore = logicalIndex < logicalLines.length - 1 || visualIndex < wrapped.length - 1;
+      const hasMore = logicalIndex < lines.length - 1 || visualIndex < wrapped.length - 1;
       const isLastAllowed = drawn === maxLines - 1;
       const line = isLastAllowed && hasMore
         ? `${wrapped[visualIndex].replace(/[.…]+$/u, "")}…`
         : wrapped[visualIndex];
-      context.direction = direction;
-      context.textAlign = direction === "rtl" ? "right" : "left";
-      context.fillText(line, direction === "rtl" ? x + maxWidth : x, y + drawn * lineHeight, maxWidth);
+      context.direction = logicalLine.direction;
+      context.textAlign = logicalLine.direction === "rtl" ? "right" : "left";
+      context.fillText(
+        line,
+        logicalLine.direction === "rtl" ? x + maxWidth : x,
+        y + drawn * lineHeight,
+        maxWidth,
+      );
       drawn += 1;
     }
   }
   return drawn;
 }
 
-export function renderShareCard(canvas: HTMLCanvasElement, payload: ShareCardContent, ratio: ShareCardRatio) {
+function lineFont(line: ShareCardRenderLine, baseSize: number) {
+  const headingScale = line.headingLevel === 1 ? 1.38
+    : line.headingLevel === 2 ? 1.26
+      : line.headingLevel === 3 ? 1.16
+        : line.headingLevel ? 1.08 : 1;
+  const size = Math.round(baseSize * headingScale);
+  const style = line.emphasis || line.math ? "italic" : "normal";
+  const weight = line.headingLevel || line.strong ? 600 : 400;
+  const family = line.code
+    ? "PromptNestLatin, PromptNestPersian, monospace"
+    : line.math
+      ? "serif"
+      : "PromptNestPersian, PromptNestLatin, sans-serif";
+  return { size, value: `${style} ${weight} ${size}px ${family}` };
+}
+
+function drawBodyLines(
+  context: CanvasRenderingContext2D,
+  lines: ShareCardRenderLine[],
+  x: number,
+  y: number,
+  maxWidth: number,
+  baseSize: number,
+  bottom: number,
+) {
+  let baseline = y;
+  for (let logicalIndex = 0; logicalIndex < lines.length; logicalIndex += 1) {
+    const logicalLine = lines[logicalIndex];
+    const font = lineFont(logicalLine, baseSize);
+    const lineHeight = font.size * 1.65;
+    context.font = font.value;
+    const wrapped = wrapLine(context, logicalLine.text, maxWidth);
+
+    for (let visualIndex = 0; visualIndex < wrapped.length; visualIndex += 1) {
+      if (baseline + lineHeight > bottom) {
+        const previous = Math.max(y, baseline - lineHeight);
+        context.font = lineFont(logicalLine, baseSize).value;
+        context.direction = logicalLine.direction;
+        context.textAlign = logicalLine.direction === "rtl" ? "right" : "left";
+        context.fillText("…", logicalLine.direction === "rtl" ? x + maxWidth : x, previous, maxWidth);
+        return;
+      }
+
+      const visualLine = wrapped[visualIndex];
+      if (logicalLine.code) {
+        context.fillStyle = "#e5e0ea";
+        context.fillRect(x - 8, baseline - font.size * 1.05, maxWidth + 16, lineHeight);
+      }
+      if (logicalLine.blockquote) {
+        context.fillStyle = "#8d7ea4";
+        context.fillRect(
+          logicalLine.direction === "rtl" ? x + maxWidth + 7 : x - 10,
+          baseline - font.size,
+          3,
+          lineHeight,
+        );
+      }
+
+      context.fillStyle = logicalLine.link ? "#6952d6"
+        : logicalLine.blockquote ? "#6f6679"
+          : "#3a3442";
+      context.direction = logicalLine.direction;
+      context.textAlign = logicalLine.direction === "rtl" ? "right" : "left";
+      context.fillText(
+        visualLine,
+        logicalLine.direction === "rtl" ? x + maxWidth : x,
+        baseline,
+        maxWidth,
+      );
+      baseline += lineHeight;
+    }
+  }
+}
+
+export function renderShareCard(
+  canvas: HTMLCanvasElement,
+  payload: ShareCardContent,
+  ratio: ShareCardRatio,
+) {
   const context = canvas.getContext("2d");
   if (!context) return;
   const [width, height] = CARD_SIZES[ratio];
@@ -106,7 +238,15 @@ export function renderShareCard(canvas: HTMLCanvasElement, payload: ShareCardCon
   const titleY = pad * 1.85;
   context.fillStyle = "#6d607f";
   context.font = `600 ${titleSize}px PromptNestPersian, PromptNestLatin, sans-serif`;
-  const titleLines = drawLogicalLines(context, payload.title, fallbackDirection, innerX, titleY, maxWidth, titleSize * 1.45, ratio === "wide" ? 2 : 3);
+  const titleLines = drawTitleLines(
+    context,
+    createShareCardTitleLines(payload.title, payload.language),
+    innerX,
+    titleY,
+    maxWidth,
+    titleSize * 1.45,
+    ratio === "wide" ? 2 : 3,
+  );
 
   const dividerY = titleY + titleLines * titleSize * 1.45 + titleSize * 0.5;
   context.beginPath();
@@ -116,11 +256,15 @@ export function renderShareCard(canvas: HTMLCanvasElement, payload: ShareCardCon
 
   const bodyY = dividerY + bodySize * 1.8;
   const footerY = height - pad * 1.6;
-  const lineHeight = bodySize * 1.65;
-  const maxLines = Math.max(2, Math.floor((footerY - bodyY - bodySize) / lineHeight));
-  context.fillStyle = "#3a3442";
-  context.font = `400 ${bodySize}px PromptNestPersian, PromptNestLatin, sans-serif`;
-  drawLogicalLines(context, payload.content, fallbackDirection, innerX, bodyY, maxWidth, lineHeight, maxLines);
+  drawBodyLines(
+    context,
+    createShareCardRenderLines(payload.content),
+    innerX,
+    bodyY,
+    maxWidth,
+    bodySize,
+    footerY - bodySize,
+  );
 
   context.direction = fallbackDirection;
   context.textAlign = fallbackDirection === "rtl" ? "right" : "left";
