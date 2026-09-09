@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { BidiEditor } from "./EditBeforeUseModal";
+
+afterEach(cleanup);
 
 function EditorHarness({ initialValue = "" }: { initialValue?: string }) {
   const [value, setValue] = useState(initialValue);

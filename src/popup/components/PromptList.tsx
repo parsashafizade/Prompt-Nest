@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, CopyPlus, FileText, GripVertical, MoreVertical, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, CopyPlus, FileText, GripVertical, MoreVertical, Pencil, Star, Trash2 } from "lucide-react";
 import { memo, useCallback, useMemo, useState, type CSSProperties, type DragEvent } from "react";
 import type { DragPayload, Folder, Prompt, PromptSortMode, TextDirection, Translator } from "../../shared/types";
 import { sortPrompts, sortedByOrder } from "../../shared/utils";
@@ -125,6 +125,7 @@ interface PromptRowProps {
   t: Translator;
   onOpen: (prompt: Prompt) => void;
   onRename: (prompt: Prompt) => void;
+  onFavorite: (prompt: Prompt) => void;
   onDelete: (prompt: Prompt) => void;
   onMoveTo: (prompt: Prompt, folderId: string) => void;
   onCopyTo: (prompt: Prompt, folderId: string) => void;
@@ -148,6 +149,7 @@ const PromptRow = memo(function PromptRow({
   t,
   onOpen,
   onRename,
+  onFavorite,
   onDelete,
   onMoveTo,
   onCopyTo,
@@ -160,6 +162,7 @@ const PromptRow = memo(function PromptRow({
   const openPrompt = useCallback(() => onOpen(prompt), [onOpen, prompt]);
   const renamePrompt = useCallback(() => onRename(prompt), [onRename, prompt]);
   const deletePrompt = useCallback(() => onDelete(prompt), [onDelete, prompt]);
+  const favoritePrompt = useCallback(() => onFavorite(prompt), [onFavorite, prompt]);
   const movePromptTo = useCallback((folderId: string) => onMoveTo(prompt, folderId), [onMoveTo, prompt]);
   const copyPromptTo = useCallback((folderId: string) => onCopyTo(prompt, folderId), [onCopyTo, prompt]);
   const movePromptStep = useCallback((direction: -1 | 1) => onMoveStep(prompt, direction), [onMoveStep, prompt]);
@@ -213,7 +216,9 @@ const PromptRow = memo(function PromptRow({
         <BidiText className="item-title" fallbackDirection={fallbackDirection} text={prompt.title} />
         {prompt.content && <ReadonlyMarkdown className="item-preview" compact value={prompt.content} />}
         {searchMode && parent && <div className="item-subtitle">{t("inFolder", { folder: parent.name })}</div>}
+        {prompt.tags.length > 0 && <div className="item-tags">{prompt.tags.join(" · ")}</div>}
       </button>
+      <button aria-label={prompt.favorite ? t("removeFavorite") : t("addFavorite")} aria-pressed={prompt.favorite} className={`favorite-button ${prompt.favorite ? "favorite-active" : ""}`} onClick={favoritePrompt} type="button"><Star aria-hidden="true" fill={prompt.favorite ? "currentColor" : "none"} size={16} /></button>
       <PromptMenu
         canReorder={canReorder}
         folders={folders}
@@ -242,6 +247,7 @@ interface PromptListProps {
   t: Translator;
   onOpen: (prompt: Prompt) => void;
   onRename: (prompt: Prompt) => void;
+  onFavorite: (prompt: Prompt) => void;
   onDelete: (prompt: Prompt) => void;
   onMoveTo: (prompt: Prompt, folderId: string) => void;
   onCopyTo: (prompt: Prompt, folderId: string) => void;
@@ -262,6 +268,7 @@ export function PromptList({
   t,
   onOpen,
   onRename,
+  onFavorite,
   onDelete,
   onMoveTo,
   onCopyTo,
@@ -307,6 +314,7 @@ export function PromptList({
             onMoveStep={onMoveStep}
             onMoveTo={onMoveTo}
             onOpen={onOpen}
+            onFavorite={onFavorite}
             onRename={onRename}
             parent={folderById.get(prompt.folderId)}
             prompt={prompt}

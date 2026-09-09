@@ -30,7 +30,7 @@ describe("database layer", () => {
     const deleted = await db.deleteFolderSubtree(root.id);
     expect(deleted.folders.map(({ id }) => id).sort()).toEqual([child.id, root.id].sort());
     expect(deleted.prompts.map(({ id }) => id)).toEqual([prompt.id]);
-    expect(await db.getSnapshot()).toEqual({ folders: [], prompts: [] });
+    expect(await db.getSnapshot()).toEqual({ folders: [], prompts: [], contextBlocks: [] });
 
     await db.restoreDeleted(deleted);
     const restored = await db.getSnapshot();

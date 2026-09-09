@@ -48,8 +48,8 @@ export function createShareCardTitleLines(title: string, language: Language) {
 }
 
 export function createShareCardRenderLines(content: string): ShareCardRenderLine[] {
-  return createMarkdownPreviewBlocks(createMarkdownPreviewModel(content)).flatMap((block) => {
-    if (block.kind === "code") {
+  return createMarkdownPreviewBlocks(createMarkdownPreviewModel(content)).flatMap<ShareCardRenderLine>((block) => {
+      if (block.kind === "code") {
       return block.lines.map(({ text, direction }) => ({
         text,
         direction,
@@ -62,6 +62,7 @@ export function createShareCardRenderLines(content: string): ShareCardRenderLine
       return [{
         text,
         direction: "ltr" as const,
+        codeBlock: false,
         segments: [{ text, math: true }],
       }];
     }

@@ -77,7 +77,7 @@ export type MarkdownPreviewBlock =
 
 type MarkdownTree = ReturnType<typeof markdownParser.parse>;
 
-interface SourceRange {
+export interface SourceRange {
   from: number;
   to: number;
 }
@@ -160,6 +160,20 @@ function findMathRanges(source: string, codeRanges: readonly SourceRange[]) {
   }
 
   return ranges;
+}
+
+export function getProtectedMarkdownRanges(source: string): SourceRange[] {
+  const tree = markdownParser.parse(source);
+  const codeRanges: SourceRange[] = [];
+  tree.iterate({
+    enter(node) {
+      if (!CODE_NODE_NAMES.has(node.name)) return;
+      codeRanges.push({ from: node.from, to: node.to });
+      if (node.name === "FencedCode" || node.name === "CodeBlock") return false;
+    },
+  });
+  return [...codeRanges, ...findMathRanges(source, codeRanges)]
+    .map(({ from, to }) => ({ from, to }));
 }
 
 function markerEndWithSpace(source: string, to: number) {

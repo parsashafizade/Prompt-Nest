@@ -1,8 +1,7 @@
 import { Download, Upload, X } from "lucide-react";
 import { useMemo, useRef, useState, type ChangeEvent } from "react";
-import { validateExportData } from "../../shared/db";
-import type { AppSettings, DatabaseSnapshot, ExportData, TextDirection, Translator } from "../../shared/types";
-import { nowIso } from "../../shared/utils";
+import { createPortableExport, normalizeExportData, validateExportData } from "../../shared/db";
+import type { AppSettings, DatabaseSnapshot, ExportDataV2, TextDirection, Translator } from "../../shared/types";
 import {
   SelectionTree,
   createAllSelection,
@@ -17,21 +16,11 @@ interface ExportImportPanelProps {
   settings: AppSettings;
   fallbackDirection: TextDirection;
   t: Translator;
-  onImport: (data: ExportData, mode: "replace" | "merge") => Promise<void>;
+  onImport: (data: ExportDataV2) => Promise<void>;
   onNotice: (message: string) => void;
 }
 
-function exportDataFromSnapshot(snapshot: DatabaseSnapshot, settings: AppSettings): ExportData {
-  return {
-    schemaVersion: 1,
-    exportedAt: nowIso(),
-    folders: snapshot.folders,
-    prompts: snapshot.prompts,
-    settings: { language: settings.language, theme: settings.theme },
-  };
-}
-
-function downloadCompactJson(data: ExportData) {
+function downloadCompactJson(data: ExportDataV2) {
   const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -51,23 +40,43 @@ export function ExportImportPanel({
 }: ExportImportPanelProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [exportSelection, setExportSelection] = useState<SelectionState | null>(null);
-  const [pending, setPending] = useState<ExportData | null>(null);
+  const [pending, setPending] = useState<ExportDataV2 | null>(null);
   const [importSelection, setImportSelection] = useState<SelectionState | null>(null);
   const [error, setError] = useState("");
   const [applying, setApplying] = useState(false);
-  const fullExport = useMemo(
-    () => exportDataFromSnapshot(snapshot, settings),
-    [settings.language, settings.theme, snapshot],
-  );
+  const exportSettings = useMemo(() => ({ language: settings.language, theme: settings.theme }), [settings.language, settings.theme]);
 
   const openExport = () => {
+    setError("");
     setExportSelection(createAllSelection(snapshot.folders, snapshot.prompts));
   };
 
-  const exportSelected = () => {
+  const exportSelected = async () => {
     if (!exportSelection || !hasSelectedItems(exportSelection)) return;
-    downloadCompactJson(filterExportData({ ...fullExport, exportedAt: nowIso() }, exportSelection));
-    setExportSelection(null);
+    setApplying(true);
+    try {
+      const selected = filterExportData({
+        schemaVersion: 2,
+        exportedAt: new Date().toISOString(),
+        folders: snapshot.folders,
+        prompts: snapshot.prompts,
+        contextBlocks: [],
+        promptVersions: [],
+        attachmentImages: [],
+        settings: exportSettings,
+      }, exportSelection);
+      if (selected.schemaVersion !== 2) return;
+      downloadCompactJson(await createPortableExport(
+        selected.folders,
+        selected.prompts,
+        snapshot.contextBlocks,
+        exportSettings,
+        settings.includeNotesInExport,
+      ));
+      setExportSelection(null);
+    } catch {
+      setError(t("exportFailed"));
+    } finally { setApplying(false); }
   };
 
   const selectFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -78,8 +87,9 @@ export function ExportImportPanel({
       const parsed: unknown = JSON.parse(await file.text());
       if (!validateExportData(parsed)) throw new Error("Invalid schema");
       setError("");
-      setPending(parsed);
-      setImportSelection(createAllSelection(parsed.folders, parsed.prompts));
+      const normalized = normalizeExportData(parsed);
+      setPending(normalized);
+      setImportSelection(createAllSelection(normalized.folders, normalized.prompts));
     } catch {
       setPending(null);
       setImportSelection(null);
@@ -87,16 +97,30 @@ export function ExportImportPanel({
     }
   };
 
-  const apply = async (mode: "replace" | "merge") => {
-    if (!pending || !importSelection || !hasSelectedItems(importSelection)) return;
+  const apply = async () => {
+    if (!pending || !importSelection || importSelection.promptIds.size === 0) return;
     setApplying(true);
     try {
-      await onImport(filterExportData(pending, importSelection), mode);
+      const selected = filterExportData(pending, importSelection);
+      if (selected.schemaVersion !== 2) throw new Error("Unexpected import schema");
+      const selectedPromptIds = new Set(selected.prompts.map(({ id }) => id));
+      const selectedContextIds = new Set(selected.prompts.flatMap(({ contextBlockIds }) => contextBlockIds));
+      const promptVersions = pending.promptVersions.filter(({ promptId }) => selectedPromptIds.has(promptId));
+      const attachmentIds = new Set([
+        ...selected.prompts.flatMap(({ noteAttachments }) => noteAttachments),
+        ...promptVersions.flatMap((version) => version.kind === "note" ? version.noteAttachments : []),
+      ].flatMap((attachment) => attachment.kind === "image" ? [attachment.blobId] : []));
+      await onImport({
+        ...selected,
+        contextBlocks: pending.contextBlocks.filter(({ id }) => selectedContextIds.has(id)),
+        promptVersions,
+        attachmentImages: pending.attachmentImages.filter(({ id }) => attachmentIds.has(id)),
+      });
       setPending(null);
       setImportSelection(null);
       onNotice(t("imported"));
     } catch {
-      setError(t("invalidImport"));
+      setError(t("importFailed"));
     } finally {
       setApplying(false);
     }
@@ -118,7 +142,7 @@ export function ExportImportPanel({
           ref={fileRef}
           type="file"
         />
-        {error && <div aria-live="polite" className="form-error">{error}</div>}
+        {error && !exportSelection && !pending && <div aria-live="polite" className="form-error">{error}</div>}
       </div>
 
       {exportSelection && (
@@ -149,9 +173,10 @@ export function ExportImportPanel({
               selection={exportSelection}
               t={t}
             />
+            {error && <div aria-live="polite" className="form-error">{error}</div>}
             <div className="dialog-actions">
               <button className="secondary-button" onClick={() => setExportSelection(null)} type="button">{t("cancel")}</button>
-              <button className="primary-button btn-primary" disabled={!hasSelectedItems(exportSelection)} onClick={exportSelected} type="button">
+              <button className="primary-button btn-primary" disabled={applying || !hasSelectedItems(exportSelection)} onClick={() => { void exportSelected(); }} type="button">
                 <Download aria-hidden="true" size={16} /> {t("export")}
               </button>
             </div>
@@ -188,20 +213,12 @@ export function ExportImportPanel({
               selection={importSelection}
               t={t}
             />
-            <h3 className="import-mode-heading">{t("importChoice")}</h3>
+            {error && <div aria-live="polite" className="form-error">{error}</div>}
             <div className="import-choice-grid">
-              <div>
-                <button className="danger-button danger-button-filled" disabled={applying || !hasSelectedItems(importSelection)} onClick={() => apply("replace")} type="button">
-                  {t("replaceAll")}
-                </button>
-                <div className="import-warning">{t("replaceWarning")}</div>
-              </div>
-              <div>
-                <button autoFocus className="primary-button btn-primary" disabled={applying || !hasSelectedItems(importSelection)} onClick={() => apply("merge")} type="button">
-                  {t("merge")}
-                </button>
-                <div className="import-hint">{t("mergeHint")}</div>
-              </div>
+              <div className="import-hint">{t("sharedImportHint")}</div>
+              <button autoFocus className="primary-button btn-primary" disabled={applying || importSelection.promptIds.size === 0} onClick={() => { void apply(); }} type="button">
+                {t("import")}
+              </button>
             </div>
           </section>
         </div>

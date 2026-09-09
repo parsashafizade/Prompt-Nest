@@ -1,4 +1,4 @@
-import { Search, X } from "lucide-react";
+import { Search, Star, X } from "lucide-react";
 import { memo } from "react";
 import type { TextDirection, Translator } from "../../shared/types";
 import { BidiText } from "./BidiText";
@@ -6,6 +6,7 @@ import { BidiText } from "./BidiText";
 export interface SearchFields {
   titles: boolean;
   content: boolean;
+  notes: boolean;
 }
 
 interface SearchBarProps {
@@ -13,8 +14,13 @@ interface SearchBarProps {
   fields: SearchFields;
   scopeName?: string;
   fallbackDirection: TextDirection;
+  availableTags: string[];
+  selectedTags: string[];
+  favoritesOnly: boolean;
   onChange: (value: string) => void;
   onToggleField: (field: keyof SearchFields) => void;
+  onToggleFavorite: () => void;
+  onToggleTag: (tag: string) => void;
   t: Translator;
 }
 
@@ -23,8 +29,13 @@ function SearchBarComponent({
   fields,
   scopeName,
   fallbackDirection,
+  availableTags,
+  selectedTags,
+  favoritesOnly,
   onChange,
   onToggleField,
+  onToggleFavorite,
+  onToggleTag,
   t,
 }: SearchBarProps) {
   return (
@@ -62,6 +73,8 @@ function SearchBarComponent({
               </button>
             );
           })}
+          <button aria-pressed={fields.notes} className="search-chip" onClick={() => onToggleField("notes")} type="button">{t("searchNotes")}</button>
+          <button aria-pressed={favoritesOnly} className="search-chip favorite-filter" onClick={onToggleFavorite} type="button"><Star aria-hidden="true" fill={favoritesOnly ? "currentColor" : "none"} size={12} /> {t("favorites")}</button>
         </div>
         {scopeName && (
           <div className="search-scope">
@@ -70,6 +83,11 @@ function SearchBarComponent({
           </div>
         )}
       </div>
+      {availableTags.length > 0 && (
+        <div className="tag-filter-row" aria-label={t("filterByTags")} role="group">
+          {availableTags.map((tag) => <button aria-pressed={selectedTags.includes(tag)} className="search-chip" key={tag} onClick={() => onToggleTag(tag)} type="button">{tag}</button>)}
+        </div>
+      )}
     </div>
   );
 }

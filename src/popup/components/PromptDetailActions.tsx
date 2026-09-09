@@ -1,11 +1,13 @@
-import { Check, Copy, FilePenLine, Pencil, X } from "lucide-react";
+import { Check, Clock3, Copy, FilePenLine, Pencil, Star, X } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
-import type { Language, Prompt, TextDirection, Translator } from "../../shared/types";
+import type { ContextBlock, ImageNoteAttachment, Prompt, PromptVersion, TextDirection, Translator, Language } from "../../shared/types";
+import { AttachmentImage } from "./AttachmentImage";
 import { BidiText } from "./BidiText";
 import { EditBeforeUseModal } from "./EditBeforeUseModal";
 import { EditPromptModal } from "./EditPromptModal";
 import { ReadonlyMarkdown } from "./ReadonlyMarkdown";
 import { ShareCardTrigger } from "./ShareCardTrigger";
+import { VersionHistoryModal } from "./VersionHistoryModal";
 import { trapModalFocus } from "./modalKeyboard";
 
 const ShareFallbackModal = lazy(() => import("./ShareFallbackModal").then((module) => ({
@@ -18,7 +20,14 @@ interface PromptDetailActionsProps {
   fallbackDirection: TextDirection;
   t: Translator;
   onClose: () => void;
+  contextBlocks: ContextBlock[];
+  onCopyContent: (content?: string) => Promise<boolean>;
+  onFavorite: () => void;
+  onOpenContextBlock: (id: string) => void;
+  onRestoreVersion: (version: PromptVersion) => Promise<void>;
+  onSavePrompt: (patch: Pick<Prompt, "content" | "tags" | "contextBlockIds" | "note" | "noteAttachments">) => Promise<void>;
   onSaveContent: (content: string) => Promise<void>;
+  onStoreImage: (file: File) => Promise<ImageNoteAttachment>;
   onNotice: (message: string) => void;
 }
 
@@ -28,17 +37,27 @@ export function PromptDetailActions({
   fallbackDirection,
   t,
   onClose,
+  contextBlocks,
+  onCopyContent,
+  onFavorite,
+  onOpenContextBlock,
+  onRestoreVersion,
+  onSavePrompt,
   onSaveContent,
+  onStoreImage,
   onNotice,
 }: PromptDetailActionsProps) {
   const [editing, setEditing] = useState(false);
   const [editingToSave, setEditingToSave] = useState(false);
   const [copied, setCopied] = useState(false);
   const [shareFallback, setShareFallback] = useState(false);
+  const [shareContent, setShareContent] = useState(prompt.content);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(prompt.content);
+      const success = await onCopyContent();
+      if (!success) return;
       setCopied(true);
       globalThis.setTimeout(() => setCopied(false), 1400);
     } catch {
@@ -51,6 +70,7 @@ export function PromptDetailActions({
       <EditBeforeUseModal
         onClose={() => setEditing(false)}
         onNotice={onNotice}
+        onCopyContent={onCopyContent}
         onSaveContent={onSaveContent}
         prompt={prompt}
         t={t}
@@ -63,7 +83,10 @@ export function PromptDetailActions({
       <EditPromptModal
         onClose={() => setEditingToSave(false)}
         onNotice={onNotice}
-        onSave={onSaveContent}
+        contextBlocks={contextBlocks}
+        onSave={onSavePrompt}
+        onOpenContextBlock={onOpenContextBlock}
+        onStoreImage={onStoreImage}
         prompt={prompt}
         t={t}
       />
@@ -77,8 +100,14 @@ export function PromptDetailActions({
           <h2 id="prompt-detail-title">
             <BidiText fallbackDirection={fallbackDirection} text={prompt.title} />
           </h2>
-          <ShareCardTrigger language={language} onFallback={() => setShareFallback(true)} prompt={prompt} t={t} />
-          <button aria-label={t("editPrompt")} className="icon-button compact" onClick={() => setEditingToSave(true)} type="button">
+          <ShareCardTrigger language={language} onFallback={(content) => { setShareContent(content); setShareFallback(true); }} prompt={prompt} t={t} />
+          <button aria-label={t("versionHistory")} className="icon-button compact" onClick={() => setHistoryOpen(true)} title={t("versionHistory")} type="button">
+            <Clock3 aria-hidden="true" size={20} />
+          </button>
+          <button aria-label={prompt.favorite ? t("removeFavorite") : t("addFavorite")} aria-pressed={prompt.favorite} className={`icon-button compact ${prompt.favorite ? "favorite-active" : ""}`} onClick={onFavorite} title={prompt.favorite ? t("removeFavorite") : t("addFavorite")} type="button">
+            <Star aria-hidden="true" fill={prompt.favorite ? "currentColor" : "none"} size={20} />
+          </button>
+          <button aria-label={t("editPrompt")} className="icon-button compact" onClick={() => setEditingToSave(true)} title={t("editPrompt")} type="button">
             <FilePenLine aria-hidden="true" size={20} />
           </button>
           <button aria-label={t("close")} className="icon-button compact" onClick={onClose} type="button">
@@ -88,6 +117,29 @@ export function PromptDetailActions({
         <div className="prompt-view">
           <ReadonlyMarkdown value={prompt.content} />
         </div>
+        {prompt.contextBlockIds.length > 0 && (
+          <div className="reference-chips" aria-label={t("contextBlocks")}>
+            {prompt.contextBlockIds.map((id) => {
+              const block = contextBlocks.find((item) => item.id === id);
+              return block ? <button className="reference-chip" key={id} onClick={() => onOpenContextBlock(id)} type="button"><BidiText fallbackDirection={fallbackDirection} text={block.title} /></button> : null;
+            })}
+          </div>
+        )}
+        {prompt.tags.length > 0 && <div className="tag-list">{prompt.tags.map((tag) => <span className="tag-chip" key={tag}>{tag}</span>)}</div>}
+        {(prompt.note || prompt.noteAttachments.length > 0) && (
+          <section className="prompt-note-view">
+            <h3>{t("personalNote")}</h3>
+            {prompt.note && <ReadonlyMarkdown value={prompt.note} />}
+            {prompt.noteAttachments.map((attachment) => attachment.kind === "image" ? (
+              <figure className="note-attachment" key={attachment.id}>
+                <AttachmentImage alt={attachment.name} blobId={attachment.blobId} />
+                {attachment.caption && <figcaption>{attachment.caption}</figcaption>}
+              </figure>
+            ) : (
+              <div className="reference-attachment" key={attachment.id}><strong>{attachment.header}</strong><span>{attachment.location}</span><small>{t("referenceNotPortable")}</small></div>
+            ))}
+          </section>
+        )}
         <div className="action-grid">
           <button autoFocus className={`primary-button btn-primary ${copied ? "copy-success" : ""}`} onClick={copy} type="button">
             {copied
@@ -107,11 +159,12 @@ export function PromptDetailActions({
             language={language}
             onClose={() => setShareFallback(false)}
             onNotice={onNotice}
-            prompt={prompt}
+            prompt={{ ...prompt, content: shareContent }}
             t={t}
           />
         </Suspense>
       )}
+      {historyOpen && <VersionHistoryModal language={language} onClose={() => setHistoryOpen(false)} onRestore={onRestoreVersion} promptId={prompt.id} t={t} />}
     </div>
   );
 }

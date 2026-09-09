@@ -2,7 +2,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 
 const manifest = JSON.parse(readFileSync("manifest.json", "utf8"));
-const expectedPermissions = ["storage", "activeTab", "scripting"];
+const expectedPermissions = ["storage", "activeTab", "scripting", "contextMenus"];
 if (JSON.stringify(manifest.permissions) !== JSON.stringify(expectedPermissions)) {
   throw new Error("Manifest permissions differ from the approved minimal set.");
 }
@@ -12,8 +12,13 @@ if (!manifest.content_security_policy?.extension_pages?.includes("connect-src 'n
 }
 
 const executableExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".html"]);
+const forbiddenFetchCalls = [
+  // Ignore class/object method declarations such as KaTeX's `fetch() { ... }` parser helper.
+  /(^|[^.\w$])fetch\s*\((?!\s*\)\s*\{)/m,
+  /\b(?:globalThis|window|self)\s*(?:\.\s*fetch|\[\s*["']fetch["']\s*\])\s*\(/,
+];
 const forbiddenRuntimeCalls = [
-  /\bfetch\s*\(/,
+  ...forbiddenFetchCalls,
   /\bXMLHttpRequest\b/,
   /\bWebSocket\s*\(/,
   /\bEventSource\s*\(/,
@@ -37,7 +42,9 @@ for (const file of executableFiles("src")) {
 
 for (const file of executableFiles("dist")) {
   const source = readFileSync(file, "utf8");
-  if (/\bfetch\s*\(/.test(source)) throw new Error(`Unexpected fetch call found in built file ${file}.`);
+  if (forbiddenFetchCalls.some((pattern) => pattern.test(source))) {
+    throw new Error(`Unexpected fetch call found in built file ${file}.`);
+  }
 }
 
 console.log("Offline runtime and manifest permission audit passed.");

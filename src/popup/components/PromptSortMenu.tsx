@@ -1,4 +1,4 @@
-import { ArrowDownAZ, ArrowUpAZ, ChevronDown, Clock, GripVertical, History, type LucideIcon } from "lucide-react";
+import { ArrowDownAZ, ArrowUpAZ, BarChart3, ChevronDown, Clock, GripVertical, History, type LucideIcon } from "lucide-react";
 import { memo, useState } from "react";
 import type { PromptSortMode, Translator } from "../../shared/types";
 
@@ -21,6 +21,7 @@ function PromptSortMenuComponent({ value, onChange, t }: PromptSortMenuProps) {
     { value: "oldest", label: t("sortOldest"), icon: History },
     { value: "name-asc", label: t("sortNameAsc"), icon: ArrowDownAZ },
     { value: "name-desc", label: t("sortNameDesc"), icon: ArrowUpAZ },
+    { value: "most-used", label: t("sortMostUsed"), icon: BarChart3 },
     { value: "custom", label: t("sortCustom"), icon: GripVertical },
   ];
   const selected = options.find((option) => option.value === value)!;

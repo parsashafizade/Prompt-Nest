@@ -94,6 +94,7 @@ interface EditBeforeUseModalProps {
   t: Translator;
   onClose: () => void;
   onSaveContent: (content: string) => Promise<void>;
+  onCopyContent: (content: string) => Promise<boolean>;
   onNotice: (message: string) => void;
 }
 
@@ -102,6 +103,7 @@ export function EditBeforeUseModal({
   t,
   onClose,
   onSaveContent,
+  onCopyContent,
   onNotice,
 }: EditBeforeUseModalProps) {
   const [content, setContent] = useState(prompt.content);
@@ -111,7 +113,8 @@ export function EditBeforeUseModal({
   const copy = async () => {
     try {
       if (saveForLater) await onSaveContent(content);
-      await navigator.clipboard.writeText(content);
+      const success = await onCopyContent(content);
+      if (!success) return;
       setCopyState("copied");
       globalThis.setTimeout(() => setCopyState("idle"), 1400);
     } catch {

@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { detectLineDirection } from "../../shared/bidi";
-import type { TextDirection, Translator } from "../../shared/types";
+import type { Folder, TextDirection, Translator } from "../../shared/types";
 import { BidiEditor } from "./EditBeforeUseModal";
 import { MarkdownPromptEditor } from "./MarkdownPromptEditor";
 import { trapModalFocus } from "./modalKeyboard";
@@ -12,9 +12,26 @@ interface ItemFormModalProps {
   initialName?: string;
   initialContent?: string;
   fallbackDirection: TextDirection;
+  destinationFolders?: Folder[];
+  initialFolderId?: string;
   t: Translator;
   onClose: () => void;
-  onSubmit: (name: string, content: string) => Promise<void>;
+  onSubmit: (name: string, content: string, folderId?: string) => Promise<void>;
+}
+
+function folderPath(folder: Folder, folders: Folder[]) {
+  const names = [folder.name];
+  const visited = new Set([folder.id]);
+  let parentId = folder.parentId;
+  while (parentId) {
+    if (visited.has(parentId)) break;
+    visited.add(parentId);
+    const parent = folders.find(({ id }) => id === parentId);
+    if (!parent) break;
+    names.unshift(parent.name);
+    parentId = parent.parentId;
+  }
+  return names.join(" / ");
 }
 
 export function ItemFormModal({
@@ -23,12 +40,15 @@ export function ItemFormModal({
   initialName = "",
   initialContent = "",
   fallbackDirection,
+  destinationFolders = [],
+  initialFolderId,
   t,
   onClose,
   onSubmit,
 }: ItemFormModalProps) {
   const [name, setName] = useState(initialName);
   const [content, setContent] = useState(initialContent);
+  const [folderId, setFolderId] = useState(initialFolderId ?? destinationFolders[0]?.id ?? "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -45,7 +65,7 @@ export function ItemFormModal({
     }
     setSaving(true);
     try {
-      await onSubmit(normalizedName, content);
+      await onSubmit(normalizedName, content, folderId || undefined);
       onClose();
     } finally {
       setSaving(false);
@@ -100,6 +120,14 @@ export function ItemFormModal({
         )}
         {kind === "prompt" && mode === "add" && (
           <>
+            {destinationFolders.length > 0 && (
+              <>
+                <label className="field-label" htmlFor="prompt-destination">{t("destinationFolder")}</label>
+                <select className="select-input" id="prompt-destination" onChange={(event) => setFolderId(event.target.value)} value={folderId}>
+                  {destinationFolders.map((folder) => <option key={folder.id} value={folder.id}>{folderPath(folder, destinationFolders)}</option>)}
+                </select>
+              </>
+            )}
             <div className="field-label">{t("content")}</div>
             <MarkdownPromptEditor
               ariaLabel={t("content")}

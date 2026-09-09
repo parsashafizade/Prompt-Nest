@@ -2,8 +2,12 @@
   "manifest_version": 3,
   "name": "Prompt Nest",
   "version": "1.0.0",
-  "description": "A private, local prompt organizer with folders, search, and share cards.",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "description": "A private, local prompt library with Markdown, reusable context, history, search, and share cards.",
+  "permissions": ["storage", "activeTab", "scripting", "contextMenus"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
   "action": {
     "default_title": "Prompt Nest",
     "default_popup": "src/popup/index.html",

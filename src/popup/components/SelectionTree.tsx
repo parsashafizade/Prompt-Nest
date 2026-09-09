@@ -65,7 +65,7 @@ export function hasSelectedItems(selection: SelectionState) {
   return selection.folderIds.size > 0 || selection.promptIds.size > 0;
 }
 
-export function filterExportData(data: ExportData, selection: SelectionState): ExportData {
+export function filterExportData<T extends ExportData>(data: T, selection: SelectionState): T {
   const folderById = new Map(data.folders.map((folder) => [folder.id, folder]));
   const includedFolders = new Set(selection.folderIds);
   const includeAncestors = (folderId: string) => {
@@ -85,7 +85,7 @@ export function filterExportData(data: ExportData, selection: SelectionState): E
     prompts: data.prompts.filter(({ id, folderId }) => (
       selection.promptIds.has(id) && includedFolders.has(folderId)
     )),
-  };
+  } as T;
 }
 
 interface TriStateCheckboxProps {

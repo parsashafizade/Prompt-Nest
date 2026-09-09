@@ -1,30 +1,41 @@
-import { ArrowLeft, FolderPlus, Folders, Pencil, Plus, Settings } from "lucide-react";
+import { ArrowLeft, Blocks, FolderPlus, Folders, Pencil, Plus, Settings } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
+  deleteContextBlockWithDetachedPrompts,
   getSettings,
   getSnapshot,
+  persistAttachmentBlob,
+  persistContextBlocks,
   persistFolders,
   persistPrompts,
-  prepareMergeImport,
+  persistSharedImport,
+  prepareSharedImport,
   removeDeletedBundle,
-  replaceDatabaseData,
+  restoreContextBlockWithPromptReferences,
   restoreDeleted,
+  savePromptEdits,
   saveSettings,
 } from "../shared/db";
+import { consumePendingPromptDraft } from "../shared/pendingPromptDraft";
+import { composePromptSource, getPromptVariableNames, substitutePromptVariables } from "../shared/promptOutput";
 import en from "../shared/i18n/en.json";
 import fa from "../shared/i18n/fa.json";
 import type {
   AccentPalette,
   AppSettings,
+  ContextBlock,
   DatabaseSnapshot,
+  DeletedContextBlockBundle,
   DeletedBundle,
   DragPayload,
-  ExportData,
+  ExportDataV2,
   Folder,
   FolderDropPosition,
   Language,
+  ImageNoteAttachment,
   Prompt,
   PromptSortMode,
+  PromptVersion,
   Theme,
   Translator,
 } from "../shared/types";
@@ -45,17 +56,31 @@ const SettingsPanel = lazy(() => import("./components/SettingsPanel").then((modu
 const PromptDetailActions = lazy(() => import("./components/PromptDetailActions").then((module) => ({
   default: module.PromptDetailActions,
 })));
+const ContextBlocksPanel = lazy(() => import("./components/ContextBlocksPanel").then((module) => ({
+  default: module.ContextBlocksPanel,
+})));
+const VariableFillModal = lazy(() => import("./components/VariableFillModal").then((module) => ({
+  default: module.VariableFillModal,
+})));
 
 type FormState =
   | { kind: "folder"; mode: "add"; parentId: string | null }
   | { kind: "folder"; mode: "rename"; folder: Folder }
-  | { kind: "prompt"; mode: "add"; folderId: string }
+  | { kind: "prompt"; mode: "add"; folderId: string; initialContent?: string; chooseFolder?: boolean }
   | { kind: "prompt"; mode: "rename"; prompt: Prompt };
 
 interface SnackbarState {
   id: number;
   message: string;
   deleted?: DeletedBundle;
+  deletedContext?: DeletedContextBlockBundle;
+}
+
+interface PendingCopy {
+  promptId: string;
+  source: string;
+  names: string[];
+  resolve: (copied: boolean) => void;
 }
 
 type SnapshotAction = { type: "replace"; snapshot: DatabaseSnapshot };
@@ -65,7 +90,7 @@ interface MoveResult<T> {
   changed: T[];
 }
 
-const EMPTY_SNAPSHOT: DatabaseSnapshot = { folders: [], prompts: [] };
+const EMPTY_SNAPSHOT: DatabaseSnapshot = { folders: [], prompts: [], contextBlocks: [] };
 const dictionaries = { en, fa } as const;
 
 function snapshotReducer(_state: DatabaseSnapshot, action: SnapshotAction) {
@@ -168,12 +193,19 @@ export default function App() {
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [searchFields, setSearchFields] = useState<SearchFields>({ titles: true, content: true });
+  const [searchFields, setSearchFields] = useState<SearchFields>({ titles: true, content: true, notes: false });
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [contextBlocksOpen, setContextBlocksOpen] = useState(false);
+  const [contextBlockEditId, setContextBlockEditId] = useState<string | undefined>();
   const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [activeDrag, setActiveDrag] = useState<DragPayload | null>(null);
   const [snackbar, setSnackbar] = useState<SnackbarState | null>(null);
+  const [pendingCopy, setPendingCopy] = useState<PendingCopy | null>(null);
+  const [pendingDraftContent, setPendingDraftContent] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const commitSnapshot = useCallback((next: DatabaseSnapshot) => {
     snapshotRef.current = next;
@@ -189,8 +221,8 @@ export default function App() {
     return value;
   }, [settings?.language]);
 
-  const showNotice = useCallback((message: string, deleted?: DeletedBundle) => {
-    setSnackbar({ id: Date.now(), message, deleted });
+  const showNotice = useCallback((message: string, deleted?: DeletedBundle, deletedContext?: DeletedContextBlockBundle) => {
+    setSnackbar({ id: Date.now(), message, deleted, deletedContext });
   }, []);
 
   const persistOperation = useCallback((operation: Promise<unknown>) => {
@@ -218,9 +250,17 @@ export default function App() {
       settingsRef.current = nextSettings;
       setSettings(nextSettings);
       if (nextSettings !== storedSettings) void saveSettings(nextSettings);
-    });
+    }).catch(() => { if (active) setLoadFailed(true); });
     return () => { active = false; };
   }, [commitSnapshot]);
+
+  useEffect(() => {
+    let active = true;
+    void consumePendingPromptDraft().then((draft) => {
+      if (active && draft) setPendingDraftContent(draft.content);
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     const timer = globalThis.setTimeout(() => setDebouncedQuery(query.trim().toLocaleLowerCase()), 200);
@@ -244,13 +284,17 @@ export default function App() {
   useEffect(() => {
     const closeTopLayer = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (form) setForm(null);
+      if (pendingCopy) {
+        pendingCopy.resolve(false);
+        setPendingCopy(null);
+      } else if (form) setForm(null);
       else if (selectedPromptId) setSelectedPromptId(null);
+      else if (contextBlocksOpen) setContextBlocksOpen(false);
       else if (settingsOpen) setSettingsOpen(false);
     };
     window.addEventListener("keydown", closeTopLayer);
     return () => window.removeEventListener("keydown", closeTopLayer);
-  }, [form, selectedPromptId, settingsOpen]);
+  }, [contextBlocksOpen, form, pendingCopy, selectedPromptId, settingsOpen]);
 
   const fallbackDirection = interfaceDirection(settings?.language ?? "en");
   const workspaceFolder = useMemo(
@@ -286,19 +330,45 @@ export default function App() {
     return ids;
   }, [currentFolderId, snapshot.folders]);
 
+  useEffect(() => {
+    if (!pendingDraftContent || !settings?.onboardingComplete || !workspaceFolder) return;
+    setForm({
+      kind: "prompt",
+      mode: "add",
+      folderId: workspaceFolder.id,
+      initialContent: pendingDraftContent,
+      chooseFolder: true,
+    });
+    setPendingDraftContent(null);
+  }, [pendingDraftContent, settings?.onboardingComplete, workspaceFolder]);
+
+  const scopedPrompts = useMemo(() => snapshot.prompts.filter((prompt) => (
+    !scopedFolderIds || scopedFolderIds.has(prompt.folderId)
+  )), [scopedFolderIds, snapshot.prompts]);
+  const availableTags = useMemo(() => [...new Set([...selectedTags, ...scopedPrompts.flatMap(({ tags }) => tags)])]
+    .sort((first, second) => first.localeCompare(second)), [scopedPrompts, selectedTags]);
+  const filterMode = Boolean(debouncedQuery || favoritesOnly || selectedTags.length);
+
   const searchResults = useMemo(() => {
-    if (!debouncedQuery) return [];
-    return snapshot.prompts
-      .filter((prompt) => !scopedFolderIds || scopedFolderIds.has(prompt.folderId))
+    return scopedPrompts
       .map((prompt) => {
+        const normalizedTags = prompt.tags.map((tag) => tag.toLocaleLowerCase());
         const titleMatches = searchFields.titles && prompt.title.toLocaleLowerCase().includes(debouncedQuery);
         const contentMatches = searchFields.content && prompt.content.toLocaleLowerCase().includes(debouncedQuery);
-        return { prompt, score: titleMatches ? 0 : contentMatches ? 1 : -1 };
+        const tagTextMatches = normalizedTags.some((tag) => tag.includes(debouncedQuery));
+        const noteAttachmentText = prompt.noteAttachments.map((attachment) => attachment.kind === "image"
+          ? attachment.caption : `${attachment.header}\n${attachment.location}`).join("\n");
+        const noteMatches = searchFields.notes
+          && `${prompt.note}\n${noteAttachmentText}`.toLocaleLowerCase().includes(debouncedQuery);
+        const queryMatches = !debouncedQuery || titleMatches || contentMatches || tagTextMatches || noteMatches;
+        const tagsMatch = selectedTags.every((tag) => prompt.tags.includes(tag));
+        const favoriteMatches = !favoritesOnly || prompt.favorite;
+        return { prompt, score: titleMatches ? 0 : contentMatches ? 1 : tagTextMatches ? 2 : noteMatches ? 3 : 4, matches: queryMatches && tagsMatch && favoriteMatches };
       })
-      .filter(({ score }) => score >= 0)
+      .filter(({ matches }) => matches)
       .sort((a, b) => a.score - b.score || b.prompt.createdAt.localeCompare(a.prompt.createdAt))
       .map(({ prompt }) => prompt);
-  }, [debouncedQuery, scopedFolderIds, searchFields.content, searchFields.titles, snapshot.prompts]);
+  }, [debouncedQuery, favoritesOnly, scopedPrompts, searchFields.content, searchFields.notes, searchFields.titles, selectedTags]);
 
   const finishOnboarding = useCallback(async () => {
     if (snapshotRef.current.folders.length === 0) {
@@ -323,13 +393,18 @@ export default function App() {
   const changeTheme = useCallback((theme: Theme) => applySettingsPatch({ theme }), [applySettingsPatch]);
   const changeAccent = useCallback((accent: AccentPalette) => applySettingsPatch({ accent }), [applySettingsPatch]);
   const changeSort = useCallback((promptSort: PromptSortMode) => applySettingsPatch({ promptSort }), [applySettingsPatch]);
+  const changeIncludeNotesInExport = useCallback((includeNotesInExport: boolean) => applySettingsPatch({ includeNotesInExport }), [applySettingsPatch]);
   const toggleSearchField = useCallback((field: keyof SearchFields) => {
     setSearchFields((current) => {
+      if (field === "notes") return { ...current, notes: !current.notes };
       const other = field === "titles" ? "content" : "titles";
       if (current[field] && !current[other]) return current;
       return { ...current, [field]: !current[field] };
     });
   }, []);
+  const toggleTag = useCallback((tag: string) => setSelectedTags((current) => current.includes(tag)
+    ? current.filter((item) => item !== tag) : [...current, tag]), []);
+  const toggleFavorites = useCallback(() => setFavoritesOnly((current) => !current), []);
 
   const navigateBack = useCallback(() => {
     const current = snapshotRef.current.folders.find(({ id }) => id === currentFolderId);
@@ -350,6 +425,7 @@ export default function App() {
       prompts: current.prompts.filter(({ folderId }) => folderIds.has(folderId)),
     };
     commitSnapshot({
+      ...current,
       folders: current.folders.filter(({ id }) => !folderIds.has(id)),
       prompts: current.prompts.filter(({ folderId }) => !folderIds.has(folderId)),
     });
@@ -370,11 +446,32 @@ export default function App() {
   }, [commitSnapshot, persistOperation, showNotice, t]);
 
   const undoDelete = useCallback(() => {
+    if (snackbar?.deletedContext) {
+      const current = snapshotRef.current;
+      const restored = snackbar.deletedContext;
+      const currentPromptsById = new Map(current.prompts.map((prompt) => [prompt.id, prompt]));
+      const restoredPrompts = restored.promptsBeforeDetach.flatMap((previousPrompt) => {
+        const currentPrompt = currentPromptsById.get(previousPrompt.id);
+        if (!currentPrompt || currentPrompt.contextBlockIds.includes(restored.contextBlock.id)) return [];
+        const previousIndex = previousPrompt.contextBlockIds.indexOf(restored.contextBlock.id);
+        const contextBlockIds = [...currentPrompt.contextBlockIds];
+        contextBlockIds.splice(Math.min(Math.max(previousIndex, 0), contextBlockIds.length), 0, restored.contextBlock.id);
+        return [{ ...currentPrompt, contextBlockIds, updatedAt: nowIso() }];
+      });
+      commitSnapshot({
+        ...replacePromptRecords(current, restoredPrompts),
+        contextBlocks: [...current.contextBlocks, restored.contextBlock],
+      });
+      persistOperation(restoreContextBlockWithPromptReferences(restored.contextBlock, restoredPrompts));
+      setSnackbar(null);
+      return;
+    }
     if (!snackbar?.deleted) return;
     const current = snapshotRef.current;
     const existingFolders = new Set(current.folders.map(({ id }) => id));
     const existingPrompts = new Set(current.prompts.map(({ id }) => id));
     commitSnapshot({
+      ...current,
       folders: [...current.folders, ...snackbar.deleted.folders.filter(({ id }) => !existingFolders.has(id))],
       prompts: [...current.prompts, ...snackbar.deleted.prompts.filter(({ id }) => !existingPrompts.has(id))],
     });
@@ -441,6 +538,8 @@ export default function App() {
       order: destination.length ? Math.max(...destination.map(({ order }) => order)) + 1 : 0,
       createdAt: timestamp,
       updatedAt: timestamp,
+      favorite: false,
+      usageCount: 0,
     };
     commitSnapshot({ ...current, prompts: [...current.prompts, duplicate] });
     persistOperation(persistPrompts([duplicate]));
@@ -482,7 +581,7 @@ export default function App() {
     setActiveDrag(null);
   }, [activeDrag, browsingParentId, moveFolderTo, movePromptTo]);
 
-  const submitForm = useCallback(async (name: string, content: string) => {
+  const submitForm = useCallback(async (name: string, content: string, selectedFolderId?: string) => {
     if (!form) return;
     const current = snapshotRef.current;
     const timestamp = nowIso();
@@ -503,15 +602,23 @@ export default function App() {
       commitSnapshot(replaceFolderRecords(current, [next]));
       persistOperation(persistFolders([next]));
     } else if (form.mode === "add") {
-      const siblings = current.prompts.filter(({ folderId }) => folderId === form.folderId);
+      const folderId = selectedFolderId && current.folders.some(({ id }) => id === selectedFolderId)
+        ? selectedFolderId : form.folderId;
+      const siblings = current.prompts.filter((prompt) => prompt.folderId === folderId);
       const prompt: Prompt = {
         id: createId(),
-        folderId: form.folderId,
+        folderId,
         title: name.trim(),
         content,
         order: siblings.length ? Math.max(...siblings.map(({ order }) => order)) + 1 : 0,
         createdAt: timestamp,
         updatedAt: timestamp,
+        favorite: false,
+        usageCount: 0,
+        tags: [],
+        contextBlockIds: [],
+        note: "",
+        noteAttachments: [],
       };
       commitSnapshot({ ...current, prompts: [...current.prompts, prompt] });
       persistOperation(persistPrompts([prompt]));
@@ -522,59 +629,200 @@ export default function App() {
     }
   }, [commitSnapshot, form, persistOperation]);
 
-  const saveSelectedPromptContent = useCallback(async (content: string) => {
+  const saveSelectedPrompt = useCallback(async (
+    patch: Pick<Prompt, "content" | "tags" | "contextBlockIds" | "note" | "noteAttachments">,
+  ) => {
     if (!selectedPromptId) return;
     const current = snapshotRef.current;
     const prompt = current.prompts.find(({ id }) => id === selectedPromptId);
     if (!prompt) return;
-    const next = { ...prompt, content, updatedAt: nowIso() };
+    const next = { ...prompt, ...patch, updatedAt: nowIso() };
+    const kinds: Array<"content" | "note"> = [];
+    if (prompt.content !== next.content) kinds.push("content");
+    if (prompt.note !== next.note || JSON.stringify(prompt.noteAttachments) !== JSON.stringify(next.noteAttachments)) kinds.push("note");
     commitSnapshot(replacePromptRecords(current, [next]));
-    persistOperation(persistPrompts([next]));
+    persistOperation(savePromptEdits(prompt, next, kinds));
   }, [commitSnapshot, persistOperation, selectedPromptId]);
 
-  const importData = useCallback(async (data: ExportData, mode: "replace" | "merge") => {
+  const saveSelectedPromptContent = useCallback(async (content: string) => {
+    const prompt = snapshotRef.current.prompts.find(({ id }) => id === selectedPromptId);
+    if (!prompt) return;
+    await saveSelectedPrompt({
+      content,
+      tags: prompt.tags,
+      contextBlockIds: prompt.contextBlockIds,
+      note: prompt.note,
+      noteAttachments: prompt.noteAttachments,
+    });
+  }, [saveSelectedPrompt, selectedPromptId]);
+
+  const restoreSelectedPromptVersion = useCallback(async (version: PromptVersion) => {
+    const prompt = snapshotRef.current.prompts.find(({ id }) => id === selectedPromptId);
+    if (!prompt || version.promptId !== prompt.id) return;
+    await saveSelectedPrompt({
+      content: version.kind === "content" ? version.content : prompt.content,
+      tags: prompt.tags,
+      contextBlockIds: prompt.contextBlockIds,
+      note: version.kind === "note" ? version.note : prompt.note,
+      noteAttachments: version.kind === "note" ? version.noteAttachments : prompt.noteAttachments,
+    });
+  }, [saveSelectedPrompt, selectedPromptId]);
+
+  const storeImageAttachment = useCallback(async (file: File): Promise<ImageNoteAttachment> => {
+    const timestamp = nowIso();
+    const blobId = createId();
+    await persistAttachmentBlob({
+      id: blobId,
+      name: file.name,
+      mimeType: file.type,
+      createdAt: timestamp,
+      data: file,
+    });
+    return {
+      id: createId(),
+      kind: "image",
+      blobId,
+      name: file.name,
+      mimeType: file.type,
+      caption: t("defaultImageCaption"),
+      createdAt: timestamp,
+    };
+  }, [t]);
+
+  const updatePromptMetadata = useCallback((promptId: string, patch: Partial<Prompt>) => {
+    const current = snapshotRef.current;
+    const prompt = current.prompts.find(({ id }) => id === promptId);
+    if (!prompt) return;
+    const next = { ...prompt, ...patch, updatedAt: nowIso() };
+    commitSnapshot(replacePromptRecords(current, [next]));
+    persistOperation(persistPrompts([next]));
+  }, [commitSnapshot, persistOperation]);
+
+  const togglePromptFavorite = useCallback((prompt: Prompt) => {
+    updatePromptMetadata(prompt.id, { favorite: !prompt.favorite });
+  }, [updatePromptMetadata]);
+
+  const completeCopy = useCallback(async (promptId: string, source: string) => {
+    await navigator.clipboard.writeText(source);
+    const prompt = snapshotRef.current.prompts.find(({ id }) => id === promptId);
+    if (prompt) updatePromptMetadata(promptId, { usageCount: prompt.usageCount + 1 });
+  }, [updatePromptMetadata]);
+
+  const requestPromptCopy = useCallback((promptId: string, contentOverride?: string): Promise<boolean> => {
+    const prompt = snapshotRef.current.prompts.find(({ id }) => id === promptId);
+    if (!prompt) return Promise.resolve(false);
+    const source = composePromptSource(contentOverride ?? prompt.content, prompt.contextBlockIds, snapshotRef.current.contextBlocks);
+    const names = getPromptVariableNames(source);
+    if (!names.length) return completeCopy(promptId, source).then(() => true).catch(() => {
+      showNotice(t("copyFailed"));
+      return false;
+    });
+    return new Promise((resolve) => setPendingCopy({ promptId, source, names, resolve }));
+  }, [completeCopy, showNotice, t]);
+
+  const submitVariables = useCallback(async (values: Record<string, string>) => {
+    if (!pendingCopy) return;
+    try {
+      await completeCopy(pendingCopy.promptId, substitutePromptVariables(pendingCopy.source, values));
+      pendingCopy.resolve(true);
+      setPendingCopy(null);
+    } catch {
+      showNotice(t("copyFailed"));
+    }
+  }, [completeCopy, pendingCopy, showNotice, t]);
+
+  const cancelVariables = useCallback(() => {
+    pendingCopy?.resolve(false);
+    setPendingCopy(null);
+  }, [pendingCopy]);
+
+  const importData = useCallback(async (data: ExportDataV2) => {
     const currentSettings = settingsRef.current;
-    if (!currentSettings) return;
-    if (mode === "replace") {
-      const nextSnapshot = { folders: data.folders, prompts: data.prompts };
-      const workspace = findWorkspaceFolder(nextSnapshot.folders);
-      const nextSettings: AppSettings = {
-        ...currentSettings,
-        ...data.settings,
-        workspaceFolderId: workspace?.id,
-      };
-      commitSnapshot(nextSnapshot);
-      settingsRef.current = nextSettings;
-      setSettings(nextSettings);
-      setCurrentFolderId(null);
-      setSelectedPromptId(null);
-      persistOperation(replaceDatabaseData(data).then(() => saveSettings(nextSettings)));
-      return;
-    }
-    const prepared = prepareMergeImport(data, snapshotRef.current);
+    const current = snapshotRef.current;
+    const workspace = findWorkspaceFolder(current.folders, currentSettings?.workspaceFolderId);
+    if (!currentSettings || !workspace) throw new Error("Workspace root is unavailable");
+    const prepared = prepareSharedImport(data, current, workspace.id);
     commitSnapshot(prepared.snapshot);
-    persistOperation(Promise.all([persistFolders(prepared.folders), persistPrompts(prepared.prompts)]));
-    if (!currentSettings.workspaceFolderId) {
-      const workspace = findWorkspaceFolder(prepared.snapshot.folders);
-      if (workspace) await applySettingsPatch({ workspaceFolderId: workspace.id });
+    try {
+      await persistSharedImport(prepared);
+    } catch (error) {
+      commitSnapshot(current);
+      throw error;
     }
-  }, [applySettingsPatch, commitSnapshot, persistOperation]);
+  }, [commitSnapshot]);
 
   const openAddFolder = useCallback(() => setForm({ kind: "folder", mode: "add", parentId: browsingParentId }), [browsingParentId]);
   const openAddPrompt = useCallback(() => {
     if (currentFolder) setForm({ kind: "prompt", mode: "add", folderId: currentFolder.id });
   }, [currentFolder]);
+  const saveContextBlock = useCallback(async (existing: ContextBlock | null, title: string, content: string) => {
+    const current = snapshotRef.current;
+    const timestamp = nowIso();
+    const block: ContextBlock = existing
+      ? { ...existing, title, content, updatedAt: timestamp }
+      : {
+          id: createId(),
+          title,
+          content,
+          order: current.contextBlocks.length
+            ? Math.max(...current.contextBlocks.map(({ order }) => order)) + 1 : 0,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+    commitSnapshot({
+      ...current,
+      contextBlocks: existing
+        ? current.contextBlocks.map((item) => item.id === existing.id ? block : item)
+        : [...current.contextBlocks, block],
+    });
+    persistOperation(persistContextBlocks([block]));
+  }, [commitSnapshot, persistOperation]);
+  const deleteContextBlock = useCallback((contextBlock: ContextBlock) => {
+    const current = snapshotRef.current;
+    const promptsBeforeDetach = current.prompts.filter(({ contextBlockIds }) => contextBlockIds.includes(contextBlock.id));
+    const detached = promptsBeforeDetach.map((prompt) => ({
+      ...prompt,
+      contextBlockIds: prompt.contextBlockIds.filter((id) => id !== contextBlock.id),
+      updatedAt: nowIso(),
+    }));
+    commitSnapshot({
+      ...replacePromptRecords(current, detached),
+      contextBlocks: current.contextBlocks.filter(({ id }) => id !== contextBlock.id),
+    });
+    persistOperation(deleteContextBlockWithDetachedPrompts(contextBlock.id, detached));
+    showNotice(t("contextBlockDeleted"), undefined, { contextBlock, promptsBeforeDetach });
+  }, [commitSnapshot, persistOperation, showNotice, t]);
+  const openContextBlocks = useCallback(() => {
+    setSettingsOpen(false);
+    setContextBlockEditId(undefined);
+    setContextBlocksOpen(true);
+  }, []);
+  const openContextBlock = useCallback((id: string) => {
+    setSelectedPromptId(null);
+    setSettingsOpen(false);
+    setContextBlockEditId(id);
+    setContextBlocksOpen(true);
+  }, []);
+  const closeContextBlocks = useCallback(() => {
+    setContextBlocksOpen(false);
+    setContextBlockEditId(undefined);
+  }, []);
   const openWorkspaceRename = useCallback(() => {
     if (workspaceFolder) setForm({ kind: "folder", mode: "rename", folder: workspaceFolder });
   }, [workspaceFolder]);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
-  const openSettings = useCallback(() => setSettingsOpen((value) => !value), []);
+  const openSettings = useCallback(() => {
+    setContextBlocksOpen(false);
+    setContextBlockEditId(undefined);
+    setSettingsOpen((value) => !value);
+  }, []);
   const closePrompt = useCallback(() => setSelectedPromptId(null), []);
   const closeForm = useCallback(() => setForm(null), []);
   const dismissSnackbar = useCallback(() => setSnackbar(null), []);
   const hasUserFolders = snapshot.folders.some(({ id }) => id !== workspaceFolder?.id);
 
-  if (!settings) return <main className="app-shell" aria-busy="true"><div className="spinner" /></main>;
+  if (loadFailed) return <main className="app-shell"><div className="empty-state" role="alert"><span>{t("loadFailed")}</span></div></main>;
+  if (!settings) return <main className="app-shell" aria-busy="true"><span className="sr-only">{t("loading")}</span><div className="spinner" /></main>;
   if (!settings.onboardingComplete) {
     return <div className="app-shell"><OnboardingFlow onComplete={finishOnboarding} t={t} /></div>;
   }
@@ -583,26 +831,47 @@ export default function App() {
     <main className="app-shell">
       <div className="top-bar">
         <SearchBar
+          availableTags={availableTags}
           fallbackDirection={fallbackDirection}
+          favoritesOnly={favoritesOnly}
           fields={searchFields}
           onChange={setQuery}
+          onToggleFavorite={toggleFavorites}
           onToggleField={toggleSearchField}
+          onToggleTag={toggleTag}
+          selectedTags={selectedTags}
           scopeName={currentFolder?.name}
           t={t}
           value={query}
         />
-        <button aria-label={t("settings")} className="icon-button toolbar-button" onClick={openSettings} type="button">
+        <button aria-label={t("contextBlocks")} className="icon-button toolbar-button" onClick={openContextBlocks} title={t("contextBlocks")} type="button">
+          <Blocks aria-hidden="true" size={20} />
+        </button>
+        <button aria-label={t("settings")} className="icon-button toolbar-button" onClick={openSettings} title={t("settings")} type="button">
           <Settings aria-hidden="true" size={20} />
         </button>
       </div>
 
-      {settingsOpen ? (
+      {contextBlocksOpen ? (
+        <Suspense fallback={<div className="screen-spinner"><div className="spinner" /></div>}>
+          <ContextBlocksPanel
+            contextBlocks={snapshot.contextBlocks}
+            editId={contextBlockEditId}
+            fallbackDirection={fallbackDirection}
+            onBack={closeContextBlocks}
+            onDelete={deleteContextBlock}
+            onSave={saveContextBlock}
+            t={t}
+          />
+        </Suspense>
+      ) : settingsOpen ? (
         <Suspense fallback={<div className="screen-spinner"><div className="spinner" /></div>}>
           <SettingsPanel
             fallbackDirection={fallbackDirection}
             onAccent={changeAccent}
             onBack={closeSettings}
             onImport={importData}
+            onIncludeNotesInExport={changeIncludeNotesInExport}
             onLanguage={changeLanguage}
             onNotice={showNotice}
             onTheme={changeTheme}
@@ -620,7 +889,7 @@ export default function App() {
               </button>
             )}
             <h1>
-              {debouncedQuery
+              {filterMode
                 ? t("search")
                 : currentFolder
                   ? <BidiText fallbackDirection={fallbackDirection} text={currentFolder.name} />
@@ -636,7 +905,7 @@ export default function App() {
             </h1>
           </header>
 
-          {debouncedQuery ? (
+          {filterMode ? (
             searchResults.length ? (
               <PromptList
                 activeDrag={activeDrag}
@@ -651,6 +920,7 @@ export default function App() {
                 onMoveStep={movePromptStep}
                 onMoveTo={movePromptTo}
                 onOpen={openPrompt}
+                onFavorite={togglePromptFavorite}
                 onRename={renamePrompt}
                 prompts={searchResults}
                 searchMode
@@ -717,6 +987,7 @@ export default function App() {
                   onMoveStep={movePromptStep}
                   onMoveTo={movePromptTo}
                   onOpen={openPrompt}
+                  onFavorite={togglePromptFavorite}
                   onRename={renamePrompt}
                   prompts={visiblePrompts}
                   sortMode={settings.promptSort}
@@ -741,8 +1012,15 @@ export default function App() {
             fallbackDirection={fallbackDirection}
             language={settings.language}
             onClose={closePrompt}
+            contextBlocks={snapshot.contextBlocks}
+            onCopyContent={(content) => requestPromptCopy(selectedPrompt.id, content)}
+            onFavorite={() => togglePromptFavorite(selectedPrompt)}
             onNotice={showNotice}
+            onOpenContextBlock={openContextBlock}
+            onRestoreVersion={restoreSelectedPromptVersion}
+            onSavePrompt={saveSelectedPrompt}
             onSaveContent={saveSelectedPromptContent}
+            onStoreImage={storeImageAttachment}
             prompt={selectedPrompt}
             t={t}
           />
@@ -752,7 +1030,9 @@ export default function App() {
       {form && (
         <ItemFormModal
           fallbackDirection={fallbackDirection}
-          initialContent={form.kind === "prompt" && form.mode === "add" ? "" : undefined}
+          destinationFolders={form.kind === "prompt" && form.mode === "add" && form.chooseFolder ? snapshot.folders : undefined}
+          initialContent={form.kind === "prompt" && form.mode === "add" ? form.initialContent ?? "" : undefined}
+          initialFolderId={form.kind === "prompt" && form.mode === "add" ? form.folderId : undefined}
           initialName={
             form.kind === "folder" && form.mode === "rename" ? form.folder.name
               : form.kind === "prompt" && form.mode === "rename" ? form.prompt.title
@@ -771,9 +1051,20 @@ export default function App() {
           key={snackbar.id}
           message={snackbar.message}
           onDismiss={dismissSnackbar}
-          onUndo={snackbar.deleted ? undoDelete : undefined}
+          onUndo={snackbar.deleted || snackbar.deletedContext ? undoDelete : undefined}
           t={t}
         />
+      )}
+      {pendingCopy && (
+        <Suspense fallback={null}>
+          <VariableFillModal
+            fallbackDirection={fallbackDirection}
+            names={pendingCopy.names}
+            onCancel={cancelVariables}
+            onSubmit={submitVariables}
+            t={t}
+          />
+        </Suspense>
       )}
     </main>
   );

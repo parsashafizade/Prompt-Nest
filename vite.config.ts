@@ -19,7 +19,13 @@ export default defineConfig({
     emptyOutDir: true,
     modulePreload: { polyfill: false },
     rollupOptions: {
-      input: resolve(__dirname, "src/popup/index.html"),
+      input: {
+        popup: resolve(__dirname, "src/popup/index.html"),
+        background: resolve(__dirname, "src/background/index.ts"),
+      },
+      output: {
+        entryFileNames: (chunk) => chunk.name === "background" ? "background.js" : "assets/[name]-[hash].js",
+      },
     },
   },
 });

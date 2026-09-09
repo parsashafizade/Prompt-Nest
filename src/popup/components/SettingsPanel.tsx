@@ -1,5 +1,5 @@
 import { ArrowLeft } from "lucide-react";
-import type { AccentPalette, AppSettings, DatabaseSnapshot, ExportData, Language, TextDirection, Theme, Translator } from "../../shared/types";
+import type { AccentPalette, AppSettings, DatabaseSnapshot, ExportDataV2, Language, TextDirection, Theme, Translator } from "../../shared/types";
 import { ExportImportPanel } from "./ExportImportPanel";
 
 interface SettingsPanelProps {
@@ -11,7 +11,8 @@ interface SettingsPanelProps {
   onLanguage: (language: Language) => Promise<void>;
   onTheme: (theme: Theme) => Promise<void>;
   onAccent: (accent: AccentPalette) => Promise<void>;
-  onImport: (data: ExportData, mode: "replace" | "merge") => Promise<void>;
+  onIncludeNotesInExport: (include: boolean) => Promise<void>;
+  onImport: (data: ExportDataV2) => Promise<void>;
   onNotice: (message: string) => void;
 }
 
@@ -24,6 +25,7 @@ export function SettingsPanel({
   onLanguage,
   onTheme,
   onAccent,
+  onIncludeNotesInExport,
   onImport,
   onNotice,
 }: SettingsPanelProps) {
@@ -73,6 +75,10 @@ export function SettingsPanel({
 
       <section className="settings-section">
         <h3>{t("data")}</h3>
+        <label className="settings-toggle">
+          <input checked={settings.includeNotesInExport} onChange={(event) => onIncludeNotesInExport(event.target.checked)} type="checkbox" />
+          <span><strong>{t("includeNotesInExport")}</strong><small>{t("includeNotesInExportHint")}</small></span>
+        </label>
         <ExportImportPanel
           fallbackDirection={fallbackDirection}
           onImport={onImport}

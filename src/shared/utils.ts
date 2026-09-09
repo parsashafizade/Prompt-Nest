@@ -17,6 +17,9 @@ export function sortPrompts(prompts: Prompt[], mode: PromptSortMode): Prompt[] {
   if (mode === "custom") return sortedByOrder(items);
   if (mode === "newest") return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   if (mode === "oldest") return items.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  if (mode === "most-used") return items.sort((a, b) => (
+    b.usageCount - a.usageCount || b.createdAt.localeCompare(a.createdAt)
+  ));
   return items.sort((a, b) => {
     const comparison = a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true });
     return mode === "name-asc" ? comparison : -comparison;
