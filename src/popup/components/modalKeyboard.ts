@@ -3,7 +3,7 @@ import type { KeyboardEvent } from "react";
 export function trapModalFocus(event: KeyboardEvent<HTMLElement>) {
   if (event.key !== "Tab") return;
   const focusable = [...event.currentTarget.querySelectorAll<HTMLElement>(
-    'button:not([disabled]), input:not([disabled]), select:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])',
+    'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
   )].filter((element) => !element.hasAttribute("hidden"));
   if (!focusable.length) return;
   const first = focusable[0];

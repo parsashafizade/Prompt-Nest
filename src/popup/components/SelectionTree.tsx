@@ -130,7 +130,7 @@ const FolderSelectionNode = memo(function FolderSelectionNode({
   onToggleFolder,
   onTogglePrompt,
 }: FolderSelectionNodeProps) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const children = indexes.childrenByParent.get(folder.id) ?? [];
   const prompts = indexes.promptsByFolder.get(folder.id) ?? [];
   const subtree = useMemo(() => collectFolderSubtree(folder.id, indexes), [folder.id, indexes]);

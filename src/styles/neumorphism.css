@@ -91,7 +91,7 @@ body,
 }
 
 body {
-  background: var(--bg);
+  background: transparent;
   color: var(--text);
   font-size: 14px;
 }
@@ -111,8 +111,8 @@ input[type="radio"] {
 
 button:focus-visible,
 input:focus-visible,
-select:focus-visible,
-[contenteditable="true"]:focus-visible {
+textarea:focus-visible,
+select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -121,6 +121,8 @@ select:focus-visible,
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
   background: var(--bg);
 }
 
@@ -811,23 +813,34 @@ select:focus-visible,
 }
 
 .bidi-editor {
+  width: 100%;
   min-height: 180px;
   max-height: 265px;
+  display: block;
   overflow: auto;
   padding: 12px;
   border: 1px solid transparent;
   border-radius: 10px;
   background: var(--surface);
   box-shadow: inset 3px 3px 7px var(--shadow-dark), inset -3px -3px 7px var(--shadow-light);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.6;
+  resize: none;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   outline: none;
 }
 
-.bidi-editor-line {
-  display: inline;
-  overflow-wrap: anywhere;
-  unicode-bidi: isolate;
+.bidi-editor-title {
+  height: 40px;
+  min-height: 40px;
+  max-height: 40px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  line-height: 22px;
+  white-space: pre;
 }
 
 .dialog-actions {

@@ -48,6 +48,5 @@ describe("BidiEditor", () => {
       "123 !!!",
     ]);
     expect(lines.map((line) => line.dir)).toEqual(["ltr", "rtl", "rtl", "ltr"]);
-    expect(document.activeElement).toBe(lines[3]);
   });
 });

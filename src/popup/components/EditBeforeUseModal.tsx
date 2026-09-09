@@ -1,62 +1,14 @@
 import { Check, Copy, X } from "lucide-react";
-import { Fragment, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
-import { splitBidiLines } from "../../shared/bidi";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { detectLineDirection } from "../../shared/bidi";
 import type { Prompt, TextDirection, Translator } from "../../shared/types";
 import { trapModalFocus } from "./modalKeyboard";
 
-interface TextSelection {
-  start: number;
-  end: number;
-}
-
-function getTextSelection(element: HTMLElement): TextSelection {
-  const selection = window.getSelection();
-  if (!selection?.rangeCount || !element.contains(selection.anchorNode) || !element.contains(selection.focusNode)) {
-    const length = element.textContent?.length ?? 0;
-    return { start: length, end: length };
-  }
-  const range = selection.getRangeAt(0);
-  const startRange = range.cloneRange();
-  startRange.selectNodeContents(element);
-  startRange.setEnd(range.startContainer, range.startOffset);
-  const endRange = range.cloneRange();
-  endRange.selectNodeContents(element);
-  endRange.setEnd(range.endContainer, range.endOffset);
-  return { start: startRange.toString().length, end: endRange.toString().length };
-}
-
-function selectionPoint(element: HTMLElement, offset: number): { node: Node; offset: number } {
-  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-  let remaining = offset;
-  let lastText: Text | null = null;
-  let node = walker.nextNode() as Text | null;
-  while (node) {
-    const length = node.data.length;
-    if (remaining < length) return { node, offset: remaining };
-    remaining -= length;
-    lastText = node;
-    node = walker.nextNode() as Text | null;
-  }
-  if (remaining === 0) {
-    const lastLine = element.querySelector<HTMLElement>("[data-editor-line]:last-of-type");
-    if (lastLine) return { node: lastLine, offset: lastLine.childNodes.length };
-  }
-  return lastText
-    ? { node: lastText, offset: lastText.data.length }
-    : { node: element, offset: 0 };
-}
-
-function placeSelection(element: HTMLElement | null, selection: TextSelection) {
-  if (!element) return;
-  element.focus();
-  const start = selectionPoint(element, selection.start);
-  const end = selectionPoint(element, selection.end);
-  const range = document.createRange();
-  range.setStart(start.node, start.offset);
-  range.setEnd(end.node, end.offset);
-  const browserSelection = window.getSelection();
-  browserSelection?.removeAllRanges();
-  browserSelection?.addRange(range);
+function lineAtCaret(value: string, caret: number) {
+  const safeCaret = Math.max(0, Math.min(caret, value.length));
+  const previousBreak = safeCaret > 0 ? value.lastIndexOf("\n", safeCaret - 1) : -1;
+  const nextBreak = value.indexOf("\n", safeCaret);
+  return value.slice(previousBreak + 1, nextBreak === -1 ? value.length : nextBreak);
 }
 
 interface BidiEditorProps {
@@ -65,7 +17,11 @@ interface BidiEditorProps {
   fallbackDirection: TextDirection;
   ariaLabel: string;
   autoFocus?: boolean;
+  className?: string;
+  id?: string;
   minHeight?: number;
+  onKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  rows?: number;
 }
 
 export function BidiEditor({
@@ -74,74 +30,61 @@ export function BidiEditor({
   fallbackDirection,
   ariaLabel,
   autoFocus = false,
+  className = "",
+  id,
   minHeight,
+  onKeyDown,
+  rows,
 }: BidiEditorProps) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const pendingSelection = useRef<TextSelection | null>(null);
-  const lines = useMemo(
-    () => splitBidiLines(value, fallbackDirection),
-    [value, fallbackDirection],
-  );
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const initialValueRef = useRef(value);
+  const [direction, setDirection] = useState<TextDirection>(() => (
+    detectLineDirection(lineAtCaret(value, 0), fallbackDirection)
+  ));
+  const directionRef = useRef(direction);
 
-  useLayoutEffect(() => {
-    const selection = pendingSelection.current;
-    if (selection) {
-      pendingSelection.current = null;
-      placeSelection(rootRef.current, selection);
+  const updateDirection = useCallback((textarea: HTMLTextAreaElement) => {
+    const currentLine = lineAtCaret(textarea.value, textarea.selectionStart ?? 0);
+    const nextDirection = detectLineDirection(currentLine, directionRef.current);
+    if (nextDirection !== directionRef.current) {
+      directionRef.current = nextDirection;
+      setDirection(nextDirection);
     }
-  }, [value]);
+  }, []);
 
-  const replaceSelection = (insertedText: string) => {
-    const element = rootRef.current;
-    if (!element) return;
-    const { start, end } = getTextSelection(element);
-    const normalized = insertedText.replace(/\r\n?/g, "\n");
-    const caret = start + normalized.length;
-    pendingSelection.current = { start: caret, end: caret };
-    onChange(`${value.slice(0, start)}${normalized}${value.slice(end)}`);
-  };
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      replaceSelection("\n");
-    }
-  };
-
-  const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    replaceSelection(event.clipboardData.getData("text/plain"));
-  };
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const textarea = textareaRef.current;
+      if (textarea && document.activeElement === textarea) updateDirection(textarea);
+    };
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => document.removeEventListener("selectionchange", handleSelectionChange);
+  }, [updateDirection]);
 
   return (
-    <div
+    <textarea
       aria-label={ariaLabel}
-      aria-multiline="true"
       autoFocus={autoFocus}
-      className="bidi-editor"
-      contentEditable
+      className={`bidi-editor ${className}`.trim()}
+      defaultValue={initialValueRef.current}
+      dir={direction}
+      id={id}
+      onFocus={(event) => updateDirection(event.currentTarget)}
       onInput={(event) => {
-        const selection = getTextSelection(event.currentTarget);
-        pendingSelection.current = selection;
-        onChange((event.currentTarget.textContent ?? "").replace(/\r\n?/g, "\n"));
+        updateDirection(event.currentTarget);
+        onChange(event.currentTarget.value);
       }}
-      onKeyDown={handleKeyDown}
-      onPaste={handlePaste}
-      ref={rootRef}
-      role="textbox"
+      onKeyDown={onKeyDown}
+      onSelect={(event) => updateDirection(event.currentTarget)}
+      ref={textareaRef}
+      rows={rows}
       spellCheck
-      style={minHeight ? { minHeight } : undefined}
-      suppressContentEditableWarning
-    >
-      {lines.map((line, index) => {
-        return (
-          <Fragment key={index}>
-            <span className="bidi-editor-line" data-editor-line dir={line.direction}>{line.text}</span>
-            {index < lines.length - 1 ? "\n" : null}
-          </Fragment>
-        );
-      })}
-    </div>
+      style={{
+        direction,
+        minHeight,
+        textAlign: direction === "rtl" ? "right" : "left",
+      }}
+    />
   );
 }
 

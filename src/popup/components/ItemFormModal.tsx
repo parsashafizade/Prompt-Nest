@@ -32,16 +32,19 @@ export function ItemFormModal({
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => inputRef.current?.focus(), []);
+  useEffect(() => {
+    if (kind === "folder") inputRef.current?.focus();
+  }, [kind]);
 
   const submit = async () => {
-    if (!name.trim() || (kind === "prompt" && mode === "add" && !content.trim())) {
+    const normalizedName = kind === "prompt" ? name.replace(/\r?\n+/g, " ").trim() : name.trim();
+    if (!normalizedName || (kind === "prompt" && mode === "add" && !content.trim())) {
       setError(t("required"));
       return;
     }
     setSaving(true);
     try {
-      await onSubmit(name.trim(), content);
+      await onSubmit(normalizedName, content);
       onClose();
     } finally {
       setSaving(false);
@@ -65,18 +68,36 @@ export function ItemFormModal({
         <label className="field-label" htmlFor="item-name">
           {kind === "folder" ? t("folderName") : t("title")}
         </label>
-        <input
-          className="text-input"
-          dir={inputDirection}
-          id="item-name"
-          onChange={(event) => { setName(event.target.value); setError(""); }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (kind === "folder" || mode === "rename")) submit();
-          }}
-          ref={inputRef}
-          style={{ textAlign: inputDirection === "rtl" ? "right" : "left" }}
-          value={name}
-        />
+        {kind === "prompt" ? (
+          <BidiEditor
+            ariaLabel={t("title")}
+            autoFocus
+            className="bidi-editor-title"
+            fallbackDirection={fallbackDirection}
+            id="item-name"
+            onChange={(value) => { setName(value); setError(""); }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              if (mode === "rename") void submit();
+            }}
+            rows={1}
+            value={name}
+          />
+        ) : (
+          <input
+            className="text-input"
+            dir={inputDirection}
+            id="item-name"
+            onChange={(event) => { setName(event.target.value); setError(""); }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) void submit();
+            }}
+            ref={inputRef}
+            style={{ textAlign: inputDirection === "rtl" ? "right" : "left" }}
+            value={name}
+          />
+        )}
         {kind === "prompt" && mode === "add" && (
           <>
             <div className="field-label">{t("content")}</div>
