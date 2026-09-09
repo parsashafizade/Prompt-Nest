@@ -5,9 +5,11 @@ folder data stays in IndexedDB; language, theme, accent, sort, and onboarding st
 storage. The extension contains no backend, analytics, remote assets, or external API calls.
 
 The popup loads its IndexedDB snapshot once per open and performs navigation, scoped search,
-and sorting in memory. Backup screens support tri-state selective export/import, while share
-cards fall back to local PNG download or clipboard copy on pages where overlay injection is
-restricted.
+and sorting in memory. Prompt bodies use one shared Markdown, KaTeX, and per-line bidi model
+for live editing, review, list previews, and local share cards; the saved value always remains
+the original Markdown source. Backup screens support tri-state selective export/import, while
+share cards fall back to local PNG download or clipboard copy on pages where overlay injection
+is restricted.
 
 ## Build
 

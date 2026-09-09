@@ -49,7 +49,6 @@ export function PromptDetailActions({
   if (editing) {
     return (
       <EditBeforeUseModal
-        fallbackDirection={fallbackDirection}
         onClose={() => setEditing(false)}
         onNotice={onNotice}
         onSaveContent={onSaveContent}

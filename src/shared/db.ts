@@ -6,7 +6,6 @@ import type {
   DatabaseSnapshot,
   DeletedBundle,
   ExportData,
-  ExportSettings,
   Folder,
   Language,
   Prompt,
@@ -80,13 +79,6 @@ export async function getSettings(): Promise<AppSettings> {
 
 export async function saveSettings(next: AppSettings): Promise<void> {
   await browser.storage.local.set({ [SETTINGS_KEY]: next });
-}
-
-export async function patchSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
-  const current = await getSettings();
-  const next = { ...current, ...patch };
-  await saveSettings(next);
-  return next;
 }
 
 export async function getSnapshot(): Promise<DatabaseSnapshot> {
@@ -295,17 +287,6 @@ export async function restoreDeleted(bundle: DeletedBundle): Promise<void> {
   await tx.done;
 }
 
-export async function createExportData(): Promise<ExportData> {
-  const [{ folders, prompts }, settings] = await Promise.all([getSnapshot(), getSettings()]);
-  return {
-    schemaVersion: 1,
-    exportedAt: nowIso(),
-    folders,
-    prompts,
-    settings: { language: settings.language, theme: settings.theme },
-  };
-}
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const isIsoDate = (value: unknown) => typeof value === "string" && !Number.isNaN(Date.parse(value));
@@ -365,14 +346,6 @@ export function validateExportData(value: unknown): value is ExportData {
   return true;
 }
 
-export async function replaceWithImport(data: ExportData): Promise<AppSettings> {
-  await replaceDatabaseData(data);
-  const current = await getSettings();
-  const next = { ...current, ...data.settings };
-  await saveSettings(next);
-  return next;
-}
-
 export async function replaceDatabaseData(data: Pick<ExportData, "folders" | "prompts">): Promise<void> {
   const db = await database();
   const tx = db.transaction(["folders", "prompts"], "readwrite");
@@ -422,19 +395,4 @@ export function prepareMergeImport(data: ExportData, existing: DatabaseSnapshot)
       prompts: [...existing.prompts, ...prompts],
     },
   };
-}
-
-export async function mergeImport(data: ExportData): Promise<void> {
-  const prepared = prepareMergeImport(data, await getSnapshot());
-  const db = await database();
-  const tx = db.transaction(["folders", "prompts"], "readwrite");
-  await Promise.all([
-    ...prepared.folders.map((folder) => tx.objectStore("folders").put(folder)),
-    ...prepared.prompts.map((prompt) => tx.objectStore("prompts").put(prompt)),
-  ]);
-  await tx.done;
-}
-
-export function exportSettingsOnly(settings: AppSettings): ExportSettings {
-  return { language: settings.language, theme: settings.theme };
 }

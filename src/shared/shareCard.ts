@@ -2,6 +2,7 @@ import { detectLineDirection } from "./bidi";
 import {
   createMarkdownPreviewBlocks,
   createMarkdownPreviewModel,
+  renderMathToPlainText,
 } from "./markdownPreview";
 import type { Language, TextDirection } from "./types";
 
@@ -18,11 +19,18 @@ export interface ShareCardRenderLine {
   direction: TextDirection;
   headingLevel?: number;
   blockquote?: boolean;
+  codeBlock?: boolean;
+  segments: ShareCardRenderSegment[];
+}
+
+export interface ShareCardRenderSegment {
+  text: string;
   strong?: boolean;
   emphasis?: boolean;
   code?: boolean;
   link?: boolean;
   math?: boolean;
+  marker?: boolean;
 }
 
 const CARD_SIZES: Record<ShareCardRatio, [number, number]> = {
@@ -42,27 +50,39 @@ export function createShareCardTitleLines(title: string, language: Language) {
 export function createShareCardRenderLines(content: string): ShareCardRenderLine[] {
   return createMarkdownPreviewBlocks(createMarkdownPreviewModel(content)).flatMap((block) => {
     if (block.kind === "code") {
-      return block.lines.map(({ text, direction }) => ({ text, direction, code: true }));
+      return block.lines.map(({ text, direction }) => ({
+        text,
+        direction,
+        codeBlock: true,
+        segments: [{ text, code: true }],
+      }));
     }
     if (block.kind === "math") {
+      const text = renderMathToPlainText(block.expression);
       return [{
-        text: block.expression,
+        text,
         direction: "ltr" as const,
-        math: true,
+        segments: [{ text, math: true }],
       }];
     }
+    const segments: ShareCardRenderSegment[] = block.segments.map((segment) => (
+      segment.kind === "math"
+        ? { text: renderMathToPlainText(segment.expression), math: true }
+        : {
+            text: segment.text,
+            strong: segment.strong,
+            emphasis: segment.emphasis,
+            code: segment.code,
+            link: segment.link,
+            marker: segment.marker,
+          }
+    ));
     return [{
-      text: block.segments.map((segment) => (
-        segment.kind === "text" ? segment.text : segment.expression
-      )).join(""),
+      text: segments.map((segment) => segment.text).join(""),
       direction: block.direction,
       headingLevel: block.headingLevel,
       blockquote: block.blockquote,
-      strong: block.segments.some((segment) => segment.kind === "text" && segment.strong),
-      emphasis: block.segments.some((segment) => segment.kind === "text" && segment.emphasis),
-      code: block.segments.some((segment) => segment.kind === "text" && segment.code),
-      link: block.segments.some((segment) => segment.kind === "text" && segment.link),
-      math: block.segments.some((segment) => segment.kind === "math"),
+      segments,
     }];
   });
 }
@@ -123,20 +143,121 @@ function drawTitleLines(
   return drawn;
 }
 
-function lineFont(line: ShareCardRenderLine, baseSize: number) {
+function segmentFont(
+  line: ShareCardRenderLine,
+  segment: ShareCardRenderSegment,
+  baseSize: number,
+) {
   const headingScale = line.headingLevel === 1 ? 1.38
     : line.headingLevel === 2 ? 1.26
       : line.headingLevel === 3 ? 1.16
         : line.headingLevel ? 1.08 : 1;
   const size = Math.round(baseSize * headingScale);
-  const style = line.emphasis || line.math ? "italic" : "normal";
-  const weight = line.headingLevel || line.strong ? 600 : 400;
-  const family = line.code
+  const style = segment.emphasis || segment.math ? "italic" : "normal";
+  const weight = line.headingLevel || segment.strong ? 600 : 400;
+  const family = segment.code
     ? "PromptNestLatin, PromptNestPersian, monospace"
-    : line.math
+    : segment.math
       ? "serif"
       : "PromptNestPersian, PromptNestLatin, sans-serif";
   return { size, value: `${style} ${weight} ${size}px ${family}` };
+}
+
+interface MeasuredShareSegment {
+  segment: ShareCardRenderSegment;
+  width: number;
+}
+
+function sameShareStyle(first: ShareCardRenderSegment, second: ShareCardRenderSegment) {
+  return first.strong === second.strong
+    && first.emphasis === second.emphasis
+    && first.code === second.code
+    && first.link === second.link
+    && first.math === second.math
+    && first.marker === second.marker;
+}
+
+function appendMeasuredSegment(
+  row: MeasuredShareSegment[],
+  segment: ShareCardRenderSegment,
+  width: number,
+) {
+  const previous = row.at(-1);
+  if (previous && sameShareStyle(previous.segment, segment)) {
+    previous.segment = { ...previous.segment, text: previous.segment.text + segment.text };
+    previous.width += width;
+  } else {
+    row.push({ segment: { ...segment }, width });
+  }
+}
+
+function wrapStyledLine(
+  context: CanvasRenderingContext2D,
+  line: ShareCardRenderLine,
+  maxWidth: number,
+  baseSize: number,
+): MeasuredShareSegment[][] {
+  if (!line.segments.length) return [[{ segment: { text: "" }, width: 0 }]];
+  const isPlain = line.segments.length === 1
+    && !line.segments[0].strong
+    && !line.segments[0].emphasis
+    && !line.segments[0].code
+    && !line.segments[0].link
+    && !line.segments[0].math
+    && !line.segments[0].marker;
+  if (isPlain) {
+    context.font = segmentFont(line, line.segments[0], baseSize).value;
+    return wrapLine(context, line.text, maxWidth).map((text) => [{
+      segment: { text },
+      width: context.measureText(text).width,
+    }]);
+  }
+
+  const rows: MeasuredShareSegment[][] = [];
+  let row: MeasuredShareSegment[] = [];
+  let rowWidth = 0;
+  const finishRow = () => {
+    rows.push(row);
+    row = [];
+    rowWidth = 0;
+  };
+
+  for (const segment of line.segments) {
+    context.font = segmentFont(line, segment, baseSize).value;
+    const pieces = segment.text.split(/(\s+)/u).filter(Boolean);
+    for (const piece of pieces) {
+      const isWhitespace = /^\s+$/u.test(piece);
+      const pieceWidth = context.measureText(piece).width;
+      if (row.length && rowWidth + pieceWidth > maxWidth) finishRow();
+      if (isWhitespace && !row.length) continue;
+
+      if (pieceWidth <= maxWidth) {
+        appendMeasuredSegment(row, { ...segment, text: piece }, pieceWidth);
+        rowWidth += pieceWidth;
+        continue;
+      }
+
+      let fragment = "";
+      let fragmentWidth = 0;
+      for (const character of piece) {
+        const characterWidth = context.measureText(character).width;
+        if (fragment && fragmentWidth + characterWidth > maxWidth) {
+          appendMeasuredSegment(row, { ...segment, text: fragment }, fragmentWidth);
+          finishRow();
+          fragment = "";
+          fragmentWidth = 0;
+        }
+        fragment += character;
+        fragmentWidth += characterWidth;
+      }
+      if (fragment) {
+        appendMeasuredSegment(row, { ...segment, text: fragment }, fragmentWidth);
+        rowWidth += fragmentWidth;
+      }
+    }
+  }
+  if (row.length || !rows.length) finishRow();
+  return rows;
 }
 
 function drawBodyLines(
@@ -149,49 +270,58 @@ function drawBodyLines(
   bottom: number,
 ) {
   let baseline = y;
-  for (let logicalIndex = 0; logicalIndex < lines.length; logicalIndex += 1) {
-    const logicalLine = lines[logicalIndex];
-    const font = lineFont(logicalLine, baseSize);
-    const lineHeight = font.size * 1.65;
-    context.font = font.value;
-    const wrapped = wrapLine(context, logicalLine.text, maxWidth);
+  for (const logicalLine of lines) {
+    const defaultSegment = logicalLine.segments[0] ?? { text: "" };
+    const lineSize = segmentFont(logicalLine, defaultSegment, baseSize).size;
+    const lineHeight = lineSize * 1.65;
+    const wrapped = wrapStyledLine(context, logicalLine, maxWidth, baseSize);
 
-    for (let visualIndex = 0; visualIndex < wrapped.length; visualIndex += 1) {
+    for (const visualLine of wrapped) {
       if (baseline + lineHeight > bottom) {
         const previous = Math.max(y, baseline - lineHeight);
-        context.font = lineFont(logicalLine, baseSize).value;
+        context.font = segmentFont(logicalLine, defaultSegment, baseSize).value;
         context.direction = logicalLine.direction;
         context.textAlign = logicalLine.direction === "rtl" ? "right" : "left";
         context.fillText("…", logicalLine.direction === "rtl" ? x + maxWidth : x, previous, maxWidth);
         return;
       }
 
-      const visualLine = wrapped[visualIndex];
-      if (logicalLine.code) {
-        context.fillStyle = "#e5e0ea";
-        context.fillRect(x - 8, baseline - font.size * 1.05, maxWidth + 16, lineHeight);
-      }
       if (logicalLine.blockquote) {
         context.fillStyle = "#8d7ea4";
         context.fillRect(
           logicalLine.direction === "rtl" ? x + maxWidth + 7 : x - 10,
-          baseline - font.size,
+          baseline - lineSize,
           3,
           lineHeight,
         );
       }
 
-      context.fillStyle = logicalLine.link ? "#6952d6"
-        : logicalLine.blockquote ? "#6f6679"
-          : "#3a3442";
-      context.direction = logicalLine.direction;
-      context.textAlign = logicalLine.direction === "rtl" ? "right" : "left";
-      context.fillText(
-        visualLine,
-        logicalLine.direction === "rtl" ? x + maxWidth : x,
-        baseline,
-        maxWidth,
-      );
+      if (logicalLine.codeBlock) {
+        context.fillStyle = "#e5e0ea";
+        context.fillRect(x - 8, baseline - lineSize * 1.05, maxWidth + 16, lineHeight);
+      }
+
+      let cursor = logicalLine.direction === "rtl" ? x + maxWidth : x;
+      for (const measured of visualLine) {
+        const { segment, width } = measured;
+        context.font = segmentFont(logicalLine, segment, baseSize).value;
+        if (segment.code && !logicalLine.codeBlock) {
+          context.fillStyle = "#e5e0ea";
+          context.fillRect(
+            logicalLine.direction === "rtl" ? cursor - width - 3 : cursor - 3,
+            baseline - lineSize * 1.05,
+            width + 6,
+            lineHeight,
+          );
+        }
+        context.fillStyle = segment.link || segment.marker ? "#6952d6"
+          : logicalLine.blockquote ? "#6f6679"
+            : "#3a3442";
+        context.direction = logicalLine.direction;
+        context.textAlign = logicalLine.direction === "rtl" ? "right" : "left";
+        context.fillText(segment.text, cursor, baseline);
+        cursor += logicalLine.direction === "rtl" ? -width : width;
+      }
       baseline += lineHeight;
     }
   }

@@ -73,7 +73,6 @@ export function ItemFormModal({
           <BidiEditor
             ariaLabel={t("title")}
             autoFocus
-            className="bidi-editor-title"
             fallbackDirection={fallbackDirection}
             id="item-name"
             onChange={(value) => { setName(value); setError(""); }}

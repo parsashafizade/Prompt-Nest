@@ -1,6 +1,9 @@
 import { Share2 } from "lucide-react";
 import browser from "webextension-polyfill";
-import { installShareOverlay } from "../../content/shareOverlay";
+import {
+  installPreparedShareOverlay,
+  prepareShareOverlayPayload,
+} from "../../content/shareOverlay";
 import type { Language, Prompt, Translator } from "../../shared/types";
 
 interface ShareCardTriggerProps {
@@ -23,8 +26,12 @@ export function ShareCardTrigger({ prompt, language, t, onFallback }: ShareCardT
       }
       await browser.scripting.executeScript({
         target: { tabId: tab.id },
-        func: installShareOverlay,
-        args: [{ title: prompt.title, content: prompt.content, language }],
+        func: installPreparedShareOverlay,
+        args: [prepareShareOverlayPayload({
+          title: prompt.title,
+          content: prompt.content,
+          language,
+        })],
       });
       window.close();
     } catch {

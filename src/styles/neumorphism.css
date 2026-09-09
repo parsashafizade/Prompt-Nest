@@ -812,35 +812,26 @@ select:focus-visible {
   padding: 8px 12px;
 }
 
-.bidi-editor {
+.bidi-title-editor {
   width: 100%;
-  min-height: 180px;
-  max-height: 265px;
+  height: 40px;
+  min-height: 40px;
+  max-height: 40px;
   display: block;
-  overflow: auto;
-  padding: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 8px 12px;
   border: 1px solid transparent;
   border-radius: 10px;
   background: var(--surface);
   box-shadow: inset 3px 3px 7px var(--shadow-dark), inset -3px -3px 7px var(--shadow-light);
   color: var(--text);
   font: inherit;
-  line-height: 1.6;
+  line-height: 22px;
   resize: none;
-  white-space: pre-wrap;
+  white-space: pre;
   overflow-wrap: anywhere;
   outline: none;
-}
-
-.bidi-editor-title {
-  height: 40px;
-  min-height: 40px;
-  max-height: 40px;
-  padding: 8px 12px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  line-height: 22px;
-  white-space: pre;
 }
 
 .markdown-editor {

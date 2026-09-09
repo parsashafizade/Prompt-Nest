@@ -99,7 +99,9 @@ function previewRangeIsActive(
   range: MarkdownPreviewRange,
 ) {
   const activeRange = { from: range.activeFrom, to: range.activeTo };
-  return range.kind === "fenced-code" || range.kind === "blockquote" || range.kind === "block-math"
+  return range.kind === "fenced-code"
+    || range.kind === "blockquote"
+    || (range.kind === "block-math" && range.block)
     ? selectionTouchesRange(state, activeRange)
     : lineRangeIsActive(state, activeLines, activeRange);
 }
@@ -188,10 +190,7 @@ function buildDecorations(view: EditorView) {
 
   for (const line of model.lines) {
     ranges.push(Decoration.line({
-      attributes: {
-        class: `cm-prompt-line cm-prompt-line-${line.direction}`,
-        dir: line.direction,
-      },
+      attributes: { dir: line.direction },
     }).range(line.from));
   }
 
@@ -228,7 +227,7 @@ function buildDecorations(view: EditorView) {
         widget: new ListMarkerWidget(marker ?? "•"),
       }).range(range.from, range.to));
     } else if (range.kind === "inline-math" || range.kind === "block-math") {
-      const displayMode = range.kind === "block-math";
+      const displayMode = range.kind === "block-math" && range.block === true;
       ranges.push(Decoration.replace({
         block: displayMode,
         widget: new MathWidget(range.value ?? "", displayMode),

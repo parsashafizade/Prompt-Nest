@@ -191,18 +191,107 @@ export async function installPreparedShareOverlay(payload: PreparedShareOverlayP
     return drawn;
   };
 
-  const lineFont = (line: ShareCardRenderLine, baseSize: number) => {
+  type RenderSegment = ShareCardRenderLine["segments"][number];
+  type MeasuredSegment = { segment: RenderSegment; width: number };
+
+  const segmentFont = (line: ShareCardRenderLine, segment: RenderSegment, baseSize: number) => {
     const headingScale = line.headingLevel === 1 ? 1.38
       : line.headingLevel === 2 ? 1.26
         : line.headingLevel === 3 ? 1.16
           : line.headingLevel ? 1.08 : 1;
     const size = Math.round(baseSize * headingScale);
-    const style = line.emphasis || line.math ? "italic" : "normal";
-    const weight = line.headingLevel || line.strong ? 600 : 400;
-    const family = line.code
+    const style = segment.emphasis || segment.math ? "italic" : "normal";
+    const weight = line.headingLevel || segment.strong ? 600 : 400;
+    const family = segment.code
       ? "PromptNestCardLatin,PromptNestCardPersian,monospace"
-      : line.math ? "serif" : "PromptNestCardPersian,PromptNestCardLatin,sans-serif";
+      : segment.math ? "serif" : "PromptNestCardPersian,PromptNestCardLatin,sans-serif";
     return { size, value: `${style} ${weight} ${size}px ${family}` };
+  };
+
+  const sameStyle = (first: RenderSegment, second: RenderSegment) => (
+    first.strong === second.strong
+    && first.emphasis === second.emphasis
+    && first.code === second.code
+    && first.link === second.link
+    && first.math === second.math
+    && first.marker === second.marker
+  );
+
+  const appendSegment = (row: MeasuredSegment[], segment: RenderSegment, width: number) => {
+    const previous = row.at(-1);
+    if (previous && sameStyle(previous.segment, segment)) {
+      previous.segment = { ...previous.segment, text: previous.segment.text + segment.text };
+      previous.width += width;
+    } else {
+      row.push({ segment: { ...segment }, width });
+    }
+  };
+
+  const wrapStyledLine = (
+    line: ShareCardRenderLine,
+    maxWidth: number,
+    baseSize: number,
+  ): MeasuredSegment[][] => {
+    if (!line.segments.length) return [[{ segment: { text: "" }, width: 0 }]];
+    const isPlain = line.segments.length === 1
+      && !line.segments[0].strong
+      && !line.segments[0].emphasis
+      && !line.segments[0].code
+      && !line.segments[0].link
+      && !line.segments[0].math
+      && !line.segments[0].marker;
+    if (isPlain) {
+      ctx.font = segmentFont(line, line.segments[0], baseSize).value;
+      return wrapLine(line.text, maxWidth).map((text) => [{
+        segment: { text },
+        width: ctx.measureText(text).width,
+      }]);
+    }
+
+    const rows: MeasuredSegment[][] = [];
+    let row: MeasuredSegment[] = [];
+    let rowWidth = 0;
+    const finishRow = () => {
+      rows.push(row);
+      row = [];
+      rowWidth = 0;
+    };
+
+    for (const segment of line.segments) {
+      ctx.font = segmentFont(line, segment, baseSize).value;
+      const pieces = segment.text.split(/(\s+)/u).filter(Boolean);
+      for (const piece of pieces) {
+        const isWhitespace = /^\s+$/u.test(piece);
+        const pieceWidth = ctx.measureText(piece).width;
+        if (row.length && rowWidth + pieceWidth > maxWidth) finishRow();
+        if (isWhitespace && !row.length) continue;
+        if (pieceWidth <= maxWidth) {
+          appendSegment(row, { ...segment, text: piece }, pieceWidth);
+          rowWidth += pieceWidth;
+          continue;
+        }
+
+        let fragment = "";
+        let fragmentWidth = 0;
+        for (const character of piece) {
+          const characterWidth = ctx.measureText(character).width;
+          if (fragment && fragmentWidth + characterWidth > maxWidth) {
+            appendSegment(row, { ...segment, text: fragment }, fragmentWidth);
+            finishRow();
+            fragment = "";
+            fragmentWidth = 0;
+          }
+          fragment += character;
+          fragmentWidth += characterWidth;
+        }
+        if (fragment) {
+          appendSegment(row, { ...segment, text: fragment }, fragmentWidth);
+          rowWidth += fragmentWidth;
+        }
+      }
+    }
+    if (row.length || !rows.length) finishRow();
+    return rows;
   };
 
   const drawBodyLines = (
@@ -215,25 +304,40 @@ export async function installPreparedShareOverlay(payload: PreparedShareOverlayP
   ) => {
     let baseline = y;
     for (const logicalLine of lines) {
-      const font = lineFont(logicalLine, baseSize);
-      const lineHeight = font.size * 1.65;
-      ctx.font = font.value;
-      const wrapped = wrapLine(logicalLine.text, maxWidth);
+      const defaultSegment = logicalLine.segments[0] ?? { text: "" };
+      const lineSize = segmentFont(logicalLine, defaultSegment, baseSize).size;
+      const lineHeight = lineSize * 1.65;
+      const wrapped = wrapStyledLine(logicalLine, maxWidth, baseSize);
       for (const visualLine of wrapped) {
         if (baseline + lineHeight > bottom) return;
-        if (logicalLine.code) {
-          ctx.fillStyle = "#e5e0ea";
-          ctx.fillRect(x - 8, baseline - font.size * 1.05, maxWidth + 16, lineHeight);
-        }
         if (logicalLine.blockquote) {
           ctx.fillStyle = "#8d7ea4";
-          ctx.fillRect(logicalLine.direction === "rtl" ? x + maxWidth + 7 : x - 10, baseline - font.size, 3, lineHeight);
+          ctx.fillRect(logicalLine.direction === "rtl" ? x + maxWidth + 7 : x - 10, baseline - lineSize, 3, lineHeight);
         }
-        ctx.fillStyle = logicalLine.link ? "#6952d6"
-          : logicalLine.blockquote ? "#6f6679" : "#3a3442";
-        ctx.direction = logicalLine.direction;
-        ctx.textAlign = logicalLine.direction === "rtl" ? "right" : "left";
-        ctx.fillText(visualLine, logicalLine.direction === "rtl" ? x + maxWidth : x, baseline, maxWidth);
+        if (logicalLine.codeBlock) {
+          ctx.fillStyle = "#e5e0ea";
+          ctx.fillRect(x - 8, baseline - lineSize * 1.05, maxWidth + 16, lineHeight);
+        }
+        let cursor = logicalLine.direction === "rtl" ? x + maxWidth : x;
+        for (const measured of visualLine) {
+          const { segment, width } = measured;
+          ctx.font = segmentFont(logicalLine, segment, baseSize).value;
+          if (segment.code && !logicalLine.codeBlock) {
+            ctx.fillStyle = "#e5e0ea";
+            ctx.fillRect(
+              logicalLine.direction === "rtl" ? cursor - width - 3 : cursor - 3,
+              baseline - lineSize * 1.05,
+              width + 6,
+              lineHeight,
+            );
+          }
+          ctx.fillStyle = segment.link || segment.marker ? "#6952d6"
+            : logicalLine.blockquote ? "#6f6679" : "#3a3442";
+          ctx.direction = logicalLine.direction;
+          ctx.textAlign = logicalLine.direction === "rtl" ? "right" : "left";
+          ctx.fillText(segment.text, cursor, baseline);
+          cursor += logicalLine.direction === "rtl" ? -width : width;
+        }
         baseline += lineHeight;
       }
     }

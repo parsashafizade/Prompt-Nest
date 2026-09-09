@@ -1,4 +1,5 @@
 import { memo, useMemo } from "react";
+import "katex/dist/katex.min.css";
 import {
   createMarkdownPreviewModel,
   renderMarkdownPreviewHtml,

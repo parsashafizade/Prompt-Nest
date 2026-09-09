@@ -43,11 +43,3 @@ export function isFolderMoveValid(folders: Folder[], folderId: string, nextParen
   if (folderId === nextParentId) return false;
   return !getDescendantFolderIds(folders, folderId).has(nextParentId);
 }
-
-export function debounce<T extends (...args: never[]) => void>(fn: T, wait: number) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  return (...args: Parameters<T>) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), wait);
-  };
-}

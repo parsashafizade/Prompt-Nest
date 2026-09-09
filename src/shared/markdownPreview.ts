@@ -24,6 +24,7 @@ export interface MarkdownPreviewRange {
   activeTo: number;
   level?: number;
   value?: string;
+  block?: boolean;
 }
 
 export interface MarkdownPreviewLine {
@@ -220,6 +221,9 @@ export function createMarkdownPreviewModel(
         }
         return null;
       };
+      const blockquoteOwner = node.name === "Blockquote"
+        ? node.node
+        : findAncestor(BLOCKQUOTE_NODE_NAMES);
       const addRange = (
         kind: MarkdownPreviewRangeKind,
         activeFrom = node.from,
@@ -227,12 +231,13 @@ export function createMarkdownPreviewModel(
         value?: string,
         level?: number,
       ) => {
+        const activeOwner = blockquoteOwner ?? { from: activeFrom, to: activeTo };
         ranges.push({
           kind,
           from: node.from,
           to: node.to,
-          activeFrom,
-          activeTo,
+          activeFrom: activeOwner.from,
+          activeTo: activeOwner.to,
           value,
           level,
         });
@@ -283,12 +288,13 @@ export function createMarkdownPreviewModel(
       if (node.name === "HeaderMark") {
         const owner = findAncestor(HEADING_NODE_NAMES);
         if (owner) {
+          const activeOwner = blockquoteOwner ?? owner;
           ranges.push({
             kind: "hidden",
             from: node.from,
             to: markerEndWithSpace(source, node.to),
-            activeFrom: owner.from,
-            activeTo: owner.to,
+            activeFrom: activeOwner.from,
+            activeTo: activeOwner.to,
           });
         }
         return false;
@@ -309,12 +315,13 @@ export function createMarkdownPreviewModel(
       if (node.name === "QuoteMark") {
         const owner = findAncestor(BLOCKQUOTE_NODE_NAMES);
         if (owner) {
+          const activeOwner = blockquoteOwner ?? owner;
           ranges.push({
             kind: "hidden",
             from: node.from,
             to: markerEndWithSpace(source, node.to),
-            activeFrom: owner.from,
-            activeTo: owner.to,
+            activeFrom: activeOwner.from,
+            activeTo: activeOwner.to,
           });
         }
         return false;
@@ -339,9 +346,32 @@ export function createMarkdownPreviewModel(
     },
   });
 
-  ranges.push(...mathRanges);
+  const lines = sourceLines(source);
+  for (const mathRange of mathRanges) {
+    if (mathRange.kind === "block-math") {
+      const firstLine = lines.find((line) => mathRange.from >= line.from && mathRange.from <= line.to);
+      const lastLine = lines.find((line) => mathRange.to >= line.from && mathRange.to <= line.to + 1);
+      mathRange.block = !firstLine
+        || !lastLine
+        || firstLine !== lastLine
+        || (
+          source.slice(firstLine.from, mathRange.from).trim() === ""
+          && source.slice(mathRange.to, firstLine.to).trim() === ""
+        );
+    }
+    const blockquote = ranges.find((range) => (
+      range.kind === "blockquote"
+      && range.from <= mathRange.from
+      && range.to >= mathRange.to
+    ));
+    ranges.push(blockquote ? {
+      ...mathRange,
+      activeFrom: blockquote.from,
+      activeTo: blockquote.to,
+    } : mathRange);
+  }
   ranges.sort((first, second) => first.from - second.from || first.to - second.to);
-  return { source, lines: sourceLines(source), ranges };
+  return { source, lines, ranges };
 }
 
 function escapeHtml(value: string) {
@@ -362,17 +392,71 @@ export function renderMathToHtml(expression: string, displayMode: boolean) {
   });
 }
 
+const SUPERSCRIPT_CHARACTERS: Record<string, string> = {
+  "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
+  "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
+  "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽", ")": "⁾",
+  n: "ⁿ", i: "ⁱ",
+};
+const SUBSCRIPT_CHARACTERS: Record<string, string> = {
+  "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄",
+  "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉",
+  "+": "₊", "-": "₋", "=": "₌", "(": "₍", ")": "₎",
+};
+
+function convertScript(value: string, characters: Record<string, string>, prefix: string) {
+  const converted = [...value].map((character) => characters[character]).join("");
+  return converted.length === [...value].length ? converted : `${prefix}(${value})`;
+}
+
+function mathNodeText(node: Element): string {
+  const children = [...node.children];
+  const childText = (index: number) => children[index] ? mathNodeText(children[index]) : "";
+  const allChildren = () => children.map(mathNodeText).join("");
+
+  switch (node.localName) {
+    case "annotation": return "";
+    case "semantics": return children[0] ? mathNodeText(children[0]) : "";
+    case "mfrac": return `(${childText(0)})/(${childText(1)})`;
+    case "msqrt": return `√(${allChildren()})`;
+    case "mroot": return `${childText(1)}√(${childText(0)})`;
+    case "msup": return childText(0) + convertScript(childText(1), SUPERSCRIPT_CHARACTERS, "^");
+    case "msub": return childText(0) + convertScript(childText(1), SUBSCRIPT_CHARACTERS, "_");
+    case "msubsup": return childText(0)
+      + convertScript(childText(1), SUBSCRIPT_CHARACTERS, "_")
+      + convertScript(childText(2), SUPERSCRIPT_CHARACTERS, "^");
+    case "mspace": return " ";
+    default: return children.length ? allChildren() : (node.textContent ?? "");
+  }
+}
+
+/** A readable canvas fallback derived from KaTeX's MathML, never from raw delimiters. */
+export function renderMathToPlainText(expression: string) {
+  if (typeof DOMParser === "undefined") return expression;
+  const markup = katex.renderToString(expression, {
+    displayMode: false,
+    output: "mathml",
+    strict: "ignore",
+    throwOnError: false,
+  });
+  const document = new DOMParser().parseFromString(markup, "text/html");
+  const math = document.querySelector("math");
+  return math ? mathNodeText(math).replace(/[\u2061-\u2064]/gu, "").trim() : expression;
+}
+
 function rangesIntersect(first: SourceRange, second: SourceRange) {
   return first.from < second.to && second.from < first.to;
 }
 
-function isStandaloneBlock(model: MarkdownPreviewModel, range: MarkdownPreviewRange) {
+function lineIntersectsRange(line: MarkdownPreviewLine, range: SourceRange) {
+  return line.from === line.to
+    ? line.from >= range.from && line.from < range.to
+    : rangesIntersect(line, range);
+}
+
+function isStandaloneBlock(range: MarkdownPreviewRange) {
   if (range.kind === "fenced-code") return true;
-  if (range.kind !== "block-math") return false;
-  const firstLine = model.lines.find((line) => range.from >= line.from && range.from <= line.to);
-  const lastLine = model.lines.find((line) => range.to >= line.from && range.to <= line.to + 1);
-  if (!firstLine || !lastLine || firstLine !== lastLine) return true;
-  return firstLine.text.trim() === model.source.slice(range.from, range.to).trim();
+  return range.kind === "block-math" && range.block === true;
 }
 
 function sameTextStyle(
@@ -448,7 +532,7 @@ function buildInlineSegments(
           marker: true,
         });
       } else {
-        const displayMode = replacement.kind === "block-math";
+        const displayMode = replacement.kind === "block-math" && replacement.block === true;
         segments.push({
           kind: "math",
           expression: replacement.value ?? "",
@@ -478,7 +562,7 @@ function buildInlineSegments(
 }
 
 export function createMarkdownPreviewBlocks(model: MarkdownPreviewModel): MarkdownPreviewBlock[] {
-  const standaloneBlocks = model.ranges.filter((range) => isStandaloneBlock(model, range));
+  const standaloneBlocks = model.ranges.filter(isStandaloneBlock);
   const inlineBlockMath = new Set(
     model.ranges.filter((range) => range.kind === "block-math" && !standaloneBlocks.includes(range)),
   );
@@ -486,7 +570,7 @@ export function createMarkdownPreviewBlocks(model: MarkdownPreviewModel): Markdo
   const blocks: MarkdownPreviewBlock[] = [];
 
   for (const line of model.lines) {
-    const block = standaloneBlocks.find((range) => rangesIntersect(line, range));
+    const block = standaloneBlocks.find((range) => lineIntersectsRange(line, range));
     if (block) {
       if (renderedBlocks.has(block)) continue;
       renderedBlocks.add(block);
@@ -504,8 +588,8 @@ export function createMarkdownPreviewBlocks(model: MarkdownPreviewModel): Markdo
       continue;
     }
 
-    const heading = model.ranges.find((range) => range.kind === "heading" && rangesIntersect(line, range));
-    const quoted = model.ranges.some((range) => range.kind === "blockquote" && rangesIntersect(line, range));
+    const heading = model.ranges.find((range) => range.kind === "heading" && lineIntersectsRange(line, range));
+    const quoted = model.ranges.some((range) => range.kind === "blockquote" && lineIntersectsRange(line, range));
     blocks.push({
       kind: "line",
       direction: line.direction,

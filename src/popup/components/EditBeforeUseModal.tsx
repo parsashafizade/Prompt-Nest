@@ -66,7 +66,7 @@ export function BidiEditor({
     <textarea
       aria-label={ariaLabel}
       autoFocus={autoFocus}
-      className={`bidi-editor ${className}`.trim()}
+      className={`bidi-title-editor ${className}`.trim()}
       defaultValue={initialValueRef.current}
       dir={direction}
       id={id}
@@ -91,7 +91,6 @@ export function BidiEditor({
 
 interface EditBeforeUseModalProps {
   prompt: Prompt;
-  fallbackDirection: TextDirection;
   t: Translator;
   onClose: () => void;
   onSaveContent: (content: string) => Promise<void>;
@@ -100,7 +99,6 @@ interface EditBeforeUseModalProps {
 
 export function EditBeforeUseModal({
   prompt,
-  fallbackDirection,
   t,
   onClose,
   onSaveContent,
