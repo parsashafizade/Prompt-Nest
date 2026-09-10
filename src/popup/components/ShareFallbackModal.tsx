@@ -1,13 +1,14 @@
 import { Check, Copy, Download, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import browser from "webextension-polyfill";
-import { renderShareCard, type ShareCardRatio } from "../../shared/shareCard";
+import { renderShareCard, type ShareCardImage, type ShareCardRatio } from "../../shared/shareCard";
 import type { Language, Prompt, Translator } from "../../shared/types";
 import { trapModalFocus } from "./modalKeyboard";
 
 interface ShareFallbackModalProps {
   prompt: Prompt;
   language: Language;
+  images: ShareCardImage[];
   t: Translator;
   onClose: () => void;
   onNotice: (message: string) => void;
@@ -17,11 +18,12 @@ async function canvasBlob(canvas: HTMLCanvasElement) {
   return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
 }
 
-export function ShareFallbackModal({ prompt, language, t, onClose, onNotice }: ShareFallbackModalProps) {
+export function ShareFallbackModal({ prompt, language, images, t, onClose, onNotice }: ShareFallbackModalProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ratio, setRatio] = useState<ShareCardRatio>("square");
   const [copied, setCopied] = useState(false);
   const [fontsReady, setFontsReady] = useState(false);
+  const [loadedImages, setLoadedImages] = useState<HTMLImageElement[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,8 +44,21 @@ export function ShareFallbackModal({ prompt, language, t, onClose, onNotice }: S
   }, []);
 
   useEffect(() => {
-    if (canvasRef.current) renderShareCard(canvasRef.current, { title: prompt.title, content: prompt.content, language }, ratio);
-  }, [fontsReady, language, prompt.content, prompt.title, ratio]);
+    let active = true;
+    void Promise.all(images.map((image) => new Promise<HTMLImageElement | null>((resolve) => {
+      const element = new Image();
+      element.addEventListener("load", () => resolve(element), { once: true });
+      element.addEventListener("error", () => resolve(null), { once: true });
+      element.src = image.dataUrl;
+    }))).then((elements) => {
+      if (active) setLoadedImages(elements.filter((element): element is HTMLImageElement => element !== null));
+    });
+    return () => { active = false; };
+  }, [images]);
+
+  useEffect(() => {
+    if (canvasRef.current) renderShareCard(canvasRef.current, { title: prompt.title, content: prompt.content, language, images: loadedImages }, ratio);
+  }, [fontsReady, language, loadedImages, prompt.content, prompt.title, ratio]);
 
   const download = async () => {
     const canvas = canvasRef.current;

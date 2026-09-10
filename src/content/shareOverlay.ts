@@ -1,6 +1,7 @@
 import {
   createShareCardRenderLines,
   createShareCardTitleLines,
+  type ShareCardImage,
   type ShareCardRenderLine,
 } from "../shared/shareCard";
 import type { Language, TextDirection } from "../shared/types";
@@ -9,12 +10,14 @@ export interface ShareOverlayPayload {
   title: string;
   content: string;
   language: Language;
+  images?: ShareCardImage[];
 }
 
 export interface PreparedShareOverlayPayload {
   titleLines: Array<{ text: string; direction: TextDirection }>;
   bodyLines: ShareCardRenderLine[];
   language: Language;
+  images: ShareCardImage[];
 }
 
 export function prepareShareOverlayPayload(payload: ShareOverlayPayload): PreparedShareOverlayPayload {
@@ -22,6 +25,7 @@ export function prepareShareOverlayPayload(payload: ShareOverlayPayload): Prepar
     titleLines: createShareCardTitleLines(payload.title, payload.language),
     bodyLines: createShareCardRenderLines(payload.content),
     language: payload.language,
+    images: payload.images ?? [],
   };
 }
 
@@ -135,6 +139,12 @@ export async function installPreparedShareOverlay(payload: PreparedShareOverlayP
     wide: [1200, 675],
   };
   let ratio: RatioKey = "square";
+  const loadedImages = (await Promise.all(payload.images.map((image) => new Promise<HTMLImageElement | null>((resolve) => {
+    const element = new Image();
+    element.addEventListener("load", () => resolve(element), { once: true });
+    element.addEventListener("error", () => resolve(null), { once: true });
+    element.src = image.dataUrl;
+  })))).filter((image): image is HTMLImageElement => image !== null);
 
   const roundedRect = (x: number, y: number, width: number, height: number, radius: number) => {
     ctx.beginPath();
@@ -343,6 +353,29 @@ export async function installPreparedShareOverlay(payload: PreparedShareOverlayP
     }
   };
 
+  const drawShareImages = (images: HTMLImageElement[], x: number, y: number, width: number, height: number) => {
+    const visibleImages = images.slice(0, 3);
+    if (!visibleImages.length || width <= 0 || height <= 0) return;
+    const gap = Math.max(8, Math.round(Math.min(width, height) * 0.035));
+    const tileWidth = (width - gap * (visibleImages.length - 1)) / visibleImages.length;
+    visibleImages.forEach((image, index) => {
+      const tileX = x + index * (tileWidth + gap);
+      const radius = Math.max(8, Math.round(Math.min(tileWidth, height) * 0.045));
+      roundedRect(tileX, y, tileWidth, height, radius);
+      ctx.fillStyle = "#e5e0ea";
+      ctx.fill();
+      ctx.save();
+      ctx.clip();
+      const naturalWidth = image.naturalWidth || image.width;
+      const naturalHeight = image.naturalHeight || image.height;
+      const scale = Math.min(tileWidth / naturalWidth, height / naturalHeight);
+      const drawWidth = naturalWidth * scale;
+      const drawHeight = naturalHeight * scale;
+      ctx.drawImage(image, tileX + (tileWidth - drawWidth) / 2, y + (height - drawHeight) / 2, drawWidth, drawHeight);
+      ctx.restore();
+    });
+  };
+
   const render = () => {
     const [width, height] = sizes[ratio];
     canvas.width = width;
@@ -386,7 +419,20 @@ export async function installPreparedShareOverlay(payload: PreparedShareOverlayP
 
     const bodyY = dividerY + bodySize * 1.8;
     const footerY = height - pad * 1.6;
-    drawBodyLines(payload.bodyLines, innerX, bodyY, maxWidth, bodySize, footerY - bodySize);
+    let bodyWidth = maxWidth;
+    let bodyBottom = footerY - bodySize;
+    if (loadedImages.length && ratio === "wide") {
+      const imageGap = bodySize * 1.2;
+      const imageWidth = maxWidth * 0.34;
+      bodyWidth = maxWidth - imageWidth - imageGap;
+      drawShareImages(loadedImages, innerX + bodyWidth + imageGap, bodyY - bodySize, imageWidth, bodyBottom - bodyY);
+    } else if (loadedImages.length) {
+      const imageHeight = Math.min(height * 0.22, short * 0.34);
+      const imageY = footerY - bodySize * 1.8 - imageHeight;
+      bodyBottom = imageY - bodySize;
+      drawShareImages(loadedImages, innerX, imageY, maxWidth, imageHeight);
+    }
+    drawBodyLines(payload.bodyLines, innerX, bodyY, bodyWidth, bodySize, bodyBottom);
 
     ctx.direction = isFa ? "rtl" : "ltr";
     ctx.textAlign = isFa ? "right" : "left";

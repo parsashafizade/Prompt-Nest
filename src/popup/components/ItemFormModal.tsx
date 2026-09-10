@@ -1,10 +1,13 @@
 import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { detectLineDirection } from "../../shared/bidi";
-import type { Folder, TextDirection, Translator } from "../../shared/types";
+import type { ContextBlock, Folder, ImageNoteAttachment, NoteAttachment, Prompt, TextDirection, Translator } from "../../shared/types";
 import { BidiEditor } from "./EditBeforeUseModal";
 import { MarkdownPromptEditor } from "./MarkdownPromptEditor";
 import { trapModalFocus } from "./modalKeyboard";
+import { PromptMetadataFields } from "./PromptMetadataFields";
+
+export type NewPromptMetadata = Pick<Prompt, "favorite" | "tags" | "contextBlockIds" | "note" | "noteAttachments">;
 
 interface ItemFormModalProps {
   kind: "folder" | "prompt";
@@ -13,10 +16,13 @@ interface ItemFormModalProps {
   initialContent?: string;
   fallbackDirection: TextDirection;
   destinationFolders?: Folder[];
+  contextBlocks?: ContextBlock[];
   initialFolderId?: string;
   t: Translator;
   onClose: () => void;
-  onSubmit: (name: string, content: string, folderId?: string) => Promise<void>;
+  onNotice: (message: string) => void;
+  onStoreImage: (file: File) => Promise<ImageNoteAttachment>;
+  onSubmit: (name: string, content: string, folderId?: string, metadata?: NewPromptMetadata) => Promise<void>;
 }
 
 function folderPath(folder: Folder, folders: Folder[]) {
@@ -41,14 +47,22 @@ export function ItemFormModal({
   initialContent = "",
   fallbackDirection,
   destinationFolders = [],
+  contextBlocks = [],
   initialFolderId,
   t,
   onClose,
+  onNotice,
+  onStoreImage,
   onSubmit,
 }: ItemFormModalProps) {
   const [name, setName] = useState(initialName);
   const [content, setContent] = useState(initialContent);
   const [folderId, setFolderId] = useState(initialFolderId ?? destinationFolders[0]?.id ?? "");
+  const [tags, setTags] = useState("");
+  const [contextBlockIds, setContextBlockIds] = useState<string[]>([]);
+  const [note, setNote] = useState("");
+  const [attachments, setAttachments] = useState<NoteAttachment[]>([]);
+  const [favorite, setFavorite] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -65,7 +79,18 @@ export function ItemFormModal({
     }
     setSaving(true);
     try {
-      await onSubmit(normalizedName, content, folderId || undefined);
+      await onSubmit(
+        normalizedName,
+        content,
+        folderId || undefined,
+        kind === "prompt" && mode === "add" ? {
+          favorite,
+          tags: [...new Set(tags.split(/[,،]/u).map((tag) => tag.trim()).filter(Boolean))],
+          contextBlockIds,
+          note,
+          noteAttachments: attachments,
+        } : undefined,
+      );
       onClose();
     } finally {
       setSaving(false);
@@ -134,6 +159,22 @@ export function ItemFormModal({
               minHeight={145}
               onChange={(value) => { setContent(value); setError(""); }}
               value={content}
+            />
+            <PromptMetadataFields
+              attachments={attachments}
+              contextBlockIds={contextBlockIds}
+              contextBlocks={contextBlocks}
+              favorite={favorite}
+              note={note}
+              onAttachmentsChange={setAttachments}
+              onContextBlockIdsChange={setContextBlockIds}
+              onFavoriteChange={setFavorite}
+              onNoteChange={setNote}
+              onNotice={onNotice}
+              onStoreImage={onStoreImage}
+              onTagsChange={setTags}
+              t={t}
+              tags={tags}
             />
           </>
         )}

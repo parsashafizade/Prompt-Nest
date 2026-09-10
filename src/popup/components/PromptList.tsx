@@ -1,8 +1,9 @@
-import { ChevronDown, ChevronUp, CopyPlus, FileText, GripVertical, MoreVertical, Pencil, Star, Trash2 } from "lucide-react";
-import { memo, useCallback, useMemo, useState, type CSSProperties, type DragEvent } from "react";
+import { Check, ChevronDown, ChevronUp, Copy, CopyPlus, FileText, GripVertical, MoreVertical, Pencil, Star, Trash2 } from "lucide-react";
+import { memo, useCallback, useMemo, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import type { DragPayload, Folder, Prompt, PromptSortMode, TextDirection, Translator } from "../../shared/types";
 import { sortPrompts, sortedByOrder } from "../../shared/utils";
 import { BidiText } from "./BidiText";
+import { AnchoredContextMenu } from "./AnchoredContextMenu";
 import { writeDragPayload } from "./DragDropTree";
 import { ReadonlyMarkdown } from "./ReadonlyMarkdown";
 
@@ -49,15 +50,16 @@ const PromptMenu = memo(function PromptMenu({
   onMoveStep,
 }: PromptMenuProps) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   return (
     <div className="menu-wrap" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => {
       if (event.key === "Escape") setOpen(false);
     }}>
-      <button aria-expanded={open} aria-haspopup="menu" aria-label={t("moreActions")} className="icon-button compact" onClick={() => setOpen((value) => !value)} type="button">
+      <button aria-expanded={open} aria-haspopup="menu" aria-label={t("moreActions")} className="icon-button compact" onClick={() => setOpen((value) => !value)} ref={triggerRef} type="button">
         <MoreVertical aria-hidden="true" size={16} />
       </button>
       {open && (
-        <div className="context-menu" role="menu">
+        <AnchoredContextMenu anchorRef={triggerRef} onClose={() => setOpen(false)}>
           <button className="menu-button" onClick={() => { setOpen(false); onRename(); }} role="menuitem" type="button">
             <Pencil aria-hidden="true" size={16} /> {t("rename")}
           </button>
@@ -94,10 +96,10 @@ const PromptMenu = memo(function PromptMenu({
           </div>
           {canReorder && (
             <div className="menu-order-row">
-              <button aria-label={t("moveUp")} className="menu-arrow" disabled={isFirst} onClick={() => onMoveStep(-1)} type="button">
+              <button aria-label={t("moveUp")} className="menu-arrow" disabled={isFirst} onClick={() => { setOpen(false); onMoveStep(-1); }} type="button">
                 <ChevronUp aria-hidden="true" size={16} />
               </button>
-              <button aria-label={t("moveDown")} className="menu-arrow" disabled={isLast} onClick={() => onMoveStep(1)} type="button">
+              <button aria-label={t("moveDown")} className="menu-arrow" disabled={isLast} onClick={() => { setOpen(false); onMoveStep(1); }} type="button">
                 <ChevronDown aria-hidden="true" size={16} />
               </button>
             </div>
@@ -105,7 +107,7 @@ const PromptMenu = memo(function PromptMenu({
           <button className="menu-button danger-menu" onClick={() => { setOpen(false); onDelete(); }} role="menuitem" type="button">
             <Trash2 aria-hidden="true" size={16} /> {t("delete")}
           </button>
-        </div>
+        </AnchoredContextMenu>
       )}
     </div>
   );
@@ -126,6 +128,7 @@ interface PromptRowProps {
   onOpen: (prompt: Prompt) => void;
   onRename: (prompt: Prompt) => void;
   onFavorite: (prompt: Prompt) => void;
+  onCopy: (prompt: Prompt) => Promise<boolean>;
   onDelete: (prompt: Prompt) => void;
   onMoveTo: (prompt: Prompt, folderId: string) => void;
   onCopyTo: (prompt: Prompt, folderId: string) => void;
@@ -150,6 +153,7 @@ const PromptRow = memo(function PromptRow({
   onOpen,
   onRename,
   onFavorite,
+  onCopy,
   onDelete,
   onMoveTo,
   onCopyTo,
@@ -159,10 +163,17 @@ const PromptRow = memo(function PromptRow({
   onDropPrompt,
 }: PromptRowProps) {
   const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(null);
+  const [copied, setCopied] = useState(false);
   const openPrompt = useCallback(() => onOpen(prompt), [onOpen, prompt]);
   const renamePrompt = useCallback(() => onRename(prompt), [onRename, prompt]);
   const deletePrompt = useCallback(() => onDelete(prompt), [onDelete, prompt]);
   const favoritePrompt = useCallback(() => onFavorite(prompt), [onFavorite, prompt]);
+  const quickCopyPrompt = useCallback(async () => {
+    const success = await onCopy(prompt);
+    if (!success) return;
+    setCopied(true);
+    globalThis.setTimeout(() => setCopied(false), 1400);
+  }, [onCopy, prompt]);
   const movePromptTo = useCallback((folderId: string) => onMoveTo(prompt, folderId), [onMoveTo, prompt]);
   const copyPromptTo = useCallback((folderId: string) => onCopyTo(prompt, folderId), [onCopyTo, prompt]);
   const movePromptStep = useCallback((direction: -1 | 1) => onMoveStep(prompt, direction), [onMoveStep, prompt]);
@@ -219,6 +230,9 @@ const PromptRow = memo(function PromptRow({
         {prompt.tags.length > 0 && <div className="item-tags">{prompt.tags.join(" · ")}</div>}
       </button>
       <button aria-label={prompt.favorite ? t("removeFavorite") : t("addFavorite")} aria-pressed={prompt.favorite} className={`favorite-button ${prompt.favorite ? "favorite-active" : ""}`} onClick={favoritePrompt} type="button"><Star aria-hidden="true" fill={prompt.favorite ? "currentColor" : "none"} size={16} /></button>
+      <button aria-label={t("copy")} className={`favorite-button ${copied ? "copy-success" : ""}`} onClick={() => { void quickCopyPrompt(); }} title={t("copy")} type="button">
+        {copied ? <Check aria-hidden="true" className="check-pop" size={16} /> : <Copy aria-hidden="true" size={16} />}
+      </button>
       <PromptMenu
         canReorder={canReorder}
         folders={folders}
@@ -248,6 +262,7 @@ interface PromptListProps {
   onOpen: (prompt: Prompt) => void;
   onRename: (prompt: Prompt) => void;
   onFavorite: (prompt: Prompt) => void;
+  onCopy: (prompt: Prompt) => Promise<boolean>;
   onDelete: (prompt: Prompt) => void;
   onMoveTo: (prompt: Prompt, folderId: string) => void;
   onCopyTo: (prompt: Prompt, folderId: string) => void;
@@ -269,6 +284,7 @@ export function PromptList({
   onOpen,
   onRename,
   onFavorite,
+  onCopy,
   onDelete,
   onMoveTo,
   onCopyTo,
@@ -307,6 +323,7 @@ export function PromptList({
             folders={folders}
             key={prompt.id}
             onCopyTo={onCopyTo}
+            onCopy={onCopy}
             onDelete={onDelete}
             onDragEnd={onDragEnd}
             onDragStart={onDragStart}

@@ -1,5 +1,6 @@
 import { Check, Clock3, Copy, FilePenLine, Pencil, Star, X } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
+import type { ShareCardImage } from "../../shared/shareCard";
 import type { ContextBlock, ImageNoteAttachment, Prompt, PromptVersion, TextDirection, Translator, Language } from "../../shared/types";
 import { AttachmentImage } from "./AttachmentImage";
 import { BidiText } from "./BidiText";
@@ -52,6 +53,7 @@ export function PromptDetailActions({
   const [copied, setCopied] = useState(false);
   const [shareFallback, setShareFallback] = useState(false);
   const [shareContent, setShareContent] = useState(prompt.content);
+  const [shareImages, setShareImages] = useState<ShareCardImage[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const copy = async () => {
@@ -96,23 +98,25 @@ export function PromptDetailActions({
   return (
     <div className="dialog-backdrop" role="presentation">
       <section aria-labelledby="prompt-detail-title" aria-modal="true" className="dialog-panel" onKeyDown={trapModalFocus} role="dialog">
-        <header className="dialog-header">
+        <header className="dialog-header prompt-detail-header">
           <h2 id="prompt-detail-title">
             <BidiText fallbackDirection={fallbackDirection} text={prompt.title} />
           </h2>
-          <ShareCardTrigger language={language} onFallback={(content) => { setShareContent(content); setShareFallback(true); }} prompt={prompt} t={t} />
-          <button aria-label={t("versionHistory")} className="icon-button compact" onClick={() => setHistoryOpen(true)} title={t("versionHistory")} type="button">
-            <Clock3 aria-hidden="true" size={20} />
-          </button>
-          <button aria-label={prompt.favorite ? t("removeFavorite") : t("addFavorite")} aria-pressed={prompt.favorite} className={`icon-button compact ${prompt.favorite ? "favorite-active" : ""}`} onClick={onFavorite} title={prompt.favorite ? t("removeFavorite") : t("addFavorite")} type="button">
-            <Star aria-hidden="true" fill={prompt.favorite ? "currentColor" : "none"} size={20} />
-          </button>
-          <button aria-label={t("editPrompt")} className="icon-button compact" onClick={() => setEditingToSave(true)} title={t("editPrompt")} type="button">
-            <FilePenLine aria-hidden="true" size={20} />
-          </button>
-          <button aria-label={t("close")} className="icon-button compact" onClick={onClose} type="button">
-            <X aria-hidden="true" size={20} />
-          </button>
+          <div className="prompt-detail-toolbar">
+            <ShareCardTrigger language={language} onFallback={(content, images) => { setShareContent(content); setShareImages(images); setShareFallback(true); }} prompt={prompt} t={t} />
+            <button aria-label={t("versionHistory")} className="icon-button compact" onClick={() => setHistoryOpen(true)} title={t("versionHistory")} type="button">
+              <Clock3 aria-hidden="true" size={20} />
+            </button>
+            <button aria-label={prompt.favorite ? t("removeFavorite") : t("addFavorite")} aria-pressed={prompt.favorite} className={`icon-button compact ${prompt.favorite ? "favorite-active" : ""}`} onClick={onFavorite} title={prompt.favorite ? t("removeFavorite") : t("addFavorite")} type="button">
+              <Star aria-hidden="true" fill={prompt.favorite ? "currentColor" : "none"} size={20} />
+            </button>
+            <button aria-label={t("editPrompt")} className="icon-button compact" onClick={() => setEditingToSave(true)} title={t("editPrompt")} type="button">
+              <FilePenLine aria-hidden="true" size={20} />
+            </button>
+            <button aria-label={t("close")} className="icon-button compact" onClick={onClose} type="button">
+              <X aria-hidden="true" size={20} />
+            </button>
+          </div>
         </header>
         <div className="prompt-view">
           <ReadonlyMarkdown value={prompt.content} />
@@ -157,6 +161,7 @@ export function PromptDetailActions({
         <Suspense fallback={null}>
           <ShareFallbackModal
             language={language}
+            images={shareImages}
             onClose={() => setShareFallback(false)}
             onNotice={onNotice}
             prompt={{ ...prompt, content: shareContent }}

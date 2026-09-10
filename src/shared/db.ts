@@ -88,7 +88,7 @@ function database() {
 }
 
 function defaultLanguage(): Language {
-  return navigator.language.toLowerCase().startsWith("fa") ? "fa" : "en";
+  return "en";
 }
 
 function defaultTheme(): Theme { return "light"; }

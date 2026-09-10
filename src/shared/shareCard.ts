@@ -8,10 +8,16 @@ import type { Language, TextDirection } from "./types";
 
 export type ShareCardRatio = "story" | "square" | "wide";
 
+export interface ShareCardImage {
+  dataUrl: string;
+  caption: string;
+}
+
 export interface ShareCardContent {
   title: string;
   content: string;
   language: Language;
+  images?: readonly HTMLImageElement[];
 }
 
 export interface ShareCardRenderLine {
@@ -328,6 +334,44 @@ function drawBodyLines(
   }
 }
 
+function drawShareImages(
+  context: CanvasRenderingContext2D,
+  images: readonly HTMLImageElement[],
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  const visibleImages = images.slice(0, 3);
+  if (!visibleImages.length || width <= 0 || height <= 0) return;
+  const gap = Math.max(8, Math.round(Math.min(width, height) * 0.035));
+  const tileWidth = (width - gap * (visibleImages.length - 1)) / visibleImages.length;
+
+  visibleImages.forEach((image, index) => {
+    const tileX = x + index * (tileWidth + gap);
+    const radius = Math.max(8, Math.round(Math.min(tileWidth, height) * 0.045));
+    context.beginPath();
+    context.roundRect(tileX, y, tileWidth, height, radius);
+    context.fillStyle = "#e5e0ea";
+    context.fill();
+    context.save();
+    context.clip();
+    const naturalWidth = image.naturalWidth || image.width;
+    const naturalHeight = image.naturalHeight || image.height;
+    const scale = Math.min(tileWidth / naturalWidth, height / naturalHeight);
+    const drawWidth = naturalWidth * scale;
+    const drawHeight = naturalHeight * scale;
+    context.drawImage(
+      image,
+      tileX + (tileWidth - drawWidth) / 2,
+      y + (height - drawHeight) / 2,
+      drawWidth,
+      drawHeight,
+    );
+    context.restore();
+  });
+}
+
 export function renderShareCard(
   canvas: HTMLCanvasElement,
   payload: ShareCardContent,
@@ -387,14 +431,28 @@ export function renderShareCard(
 
   const bodyY = dividerY + bodySize * 1.8;
   const footerY = height - pad * 1.6;
+  const images = payload.images ?? [];
+  let bodyWidth = maxWidth;
+  let bodyBottom = footerY - bodySize;
+  if (images.length && ratio === "wide") {
+    const imageGap = bodySize * 1.2;
+    const imageWidth = maxWidth * 0.34;
+    bodyWidth = maxWidth - imageWidth - imageGap;
+    drawShareImages(context, images, innerX + bodyWidth + imageGap, bodyY - bodySize, imageWidth, bodyBottom - bodyY);
+  } else if (images.length) {
+    const imageHeight = Math.min(height * 0.22, short * 0.34);
+    const imageY = footerY - bodySize * 1.8 - imageHeight;
+    bodyBottom = imageY - bodySize;
+    drawShareImages(context, images, innerX, imageY, maxWidth, imageHeight);
+  }
   drawBodyLines(
     context,
     createShareCardRenderLines(payload.content),
     innerX,
     bodyY,
-    maxWidth,
+    bodyWidth,
     bodySize,
-    footerY - bodySize,
+    bodyBottom,
   );
 
   context.direction = fallbackDirection;

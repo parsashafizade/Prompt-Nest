@@ -138,6 +138,7 @@ select:focus-visible {
 }
 
 .search-area {
+  position: relative;
   min-width: 0;
   flex: 1;
 }
@@ -185,6 +186,70 @@ select:focus-visible {
   margin-top: 8px;
 }
 
+.filter-menu-wrap {
+  position: relative;
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+}
+
+.filter-trigger {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 11px;
+  transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1), color 150ms cubic-bezier(0.4, 0, 0.2, 1), background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.filter-trigger:hover {
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.filter-trigger.filters-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.filter-menu {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 6px);
+  inset-inline-end: 0;
+  width: min(280px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  box-shadow: 6px 6px 12px var(--shadow-dark), -6px -6px 12px var(--shadow-light);
+}
+
+.filter-menu-label {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.filter-menu-label:not(:first-child) { margin-top: 12px; }
+
+.filter-menu .search-chips,
+.filter-menu .tag-filter-row {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+
+.filter-menu .tag-filter-row {
+  max-height: 112px;
+  margin-top: 0;
+  overflow-y: auto;
+}
+
 .tag-filter-row {
   display: flex;
   gap: 4px;
@@ -230,6 +295,7 @@ select:focus-visible {
 
 .search-scope {
   min-width: 0;
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -513,10 +579,11 @@ select:focus-visible {
   justify-content: space-between;
   gap: 8px;
   margin-top: 16px;
+  margin-bottom: 12px;
 }
 
 .section-heading .section-label {
-  margin-top: 0;
+  margin: 0;
 }
 
 .add-actions {
@@ -625,6 +692,15 @@ select:focus-visible {
   border-radius: 12px;
   background: var(--surface-raised);
   box-shadow: 6px 6px 12px var(--shadow-dark), -6px -6px 12px var(--shadow-light);
+}
+
+.context-menu-portal {
+  position: fixed;
+  z-index: 65;
+  top: auto;
+  inset-inline-end: auto;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
 }
 
 .context-menu .menu-button {
@@ -1202,6 +1278,19 @@ select:focus-visible {
 .check-chip input { accent-color: var(--accent); }
 .context-option { display: inline-flex; align-items: center; gap: 4px; }
 .context-edit-link { min-height: 32px; padding: 4px 8px; border: 0; color: var(--accent); background: transparent; font-size: 11px; }
+.prompt-favorite-field { margin-top: 12px; }
+
+.prompt-detail-header {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.prompt-detail-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
 
 .prompt-view {
   max-height: 285px;

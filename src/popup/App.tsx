@@ -44,7 +44,7 @@ import { BidiText } from "./components/BidiText";
 import { ConfirmUndoSnackbar } from "./components/ConfirmUndoSnackbar";
 import { DragDropTree } from "./components/DragDropTree";
 import { FolderTree } from "./components/FolderTree";
-import { ItemFormModal } from "./components/ItemFormModal";
+import { ItemFormModal, type NewPromptMetadata } from "./components/ItemFormModal";
 import { OnboardingFlow } from "./components/OnboardingFlow";
 import { PromptList } from "./components/PromptList";
 import { PromptSortMenu } from "./components/PromptSortMenu";
@@ -581,7 +581,7 @@ export default function App() {
     setActiveDrag(null);
   }, [activeDrag, browsingParentId, moveFolderTo, movePromptTo]);
 
-  const submitForm = useCallback(async (name: string, content: string, selectedFolderId?: string) => {
+  const submitForm = useCallback(async (name: string, content: string, selectedFolderId?: string, metadata?: NewPromptMetadata) => {
     if (!form) return;
     const current = snapshotRef.current;
     const timestamp = nowIso();
@@ -613,12 +613,12 @@ export default function App() {
         order: siblings.length ? Math.max(...siblings.map(({ order }) => order)) + 1 : 0,
         createdAt: timestamp,
         updatedAt: timestamp,
-        favorite: false,
+        favorite: metadata?.favorite ?? false,
         usageCount: 0,
-        tags: [],
-        contextBlockIds: [],
-        note: "",
-        noteAttachments: [],
+        tags: metadata?.tags ?? [],
+        contextBlockIds: metadata?.contextBlockIds ?? [],
+        note: metadata?.note ?? "",
+        noteAttachments: metadata?.noteAttachments ?? [],
       };
       commitSnapshot({ ...current, prompts: [...current.prompts, prompt] });
       persistOperation(persistPrompts([prompt]));
@@ -735,6 +735,8 @@ export default function App() {
     pendingCopy?.resolve(false);
     setPendingCopy(null);
   }, [pendingCopy]);
+
+  const quickCopyPrompt = useCallback((prompt: Prompt) => requestPromptCopy(prompt.id), [requestPromptCopy]);
 
   const importData = useCallback(async (data: ExportDataV2) => {
     const currentSettings = settingsRef.current;
@@ -913,6 +915,7 @@ export default function App() {
                 fallbackDirection={fallbackDirection}
                 folders={snapshot.folders}
                 onCopyTo={copyPromptTo}
+                onCopy={quickCopyPrompt}
                 onDelete={deletePromptNow}
                 onDragEnd={clearDrag}
                 onDragStart={setActiveDrag}
@@ -980,6 +983,7 @@ export default function App() {
                   fallbackDirection={fallbackDirection}
                   folders={snapshot.folders}
                   onCopyTo={copyPromptTo}
+                  onCopy={quickCopyPrompt}
                   onDelete={deletePromptNow}
                   onDragEnd={clearDrag}
                   onDragStart={setActiveDrag}
@@ -1029,6 +1033,7 @@ export default function App() {
 
       {form && (
         <ItemFormModal
+          contextBlocks={snapshot.contextBlocks}
           fallbackDirection={fallbackDirection}
           destinationFolders={form.kind === "prompt" && form.mode === "add" && form.chooseFolder ? snapshot.folders : undefined}
           initialContent={form.kind === "prompt" && form.mode === "add" ? form.initialContent ?? "" : undefined}
@@ -1041,6 +1046,8 @@ export default function App() {
           kind={form.kind}
           mode={form.mode}
           onClose={closeForm}
+          onNotice={showNotice}
+          onStoreImage={storeImageAttachment}
           onSubmit={submitForm}
           t={t}
         />

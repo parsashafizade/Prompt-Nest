@@ -7,7 +7,7 @@ const SETTINGS_KEY = "promptNestSettings";
 async function registerSelectionMenu() {
   const stored = await browser.storage.local.get(SETTINGS_KEY);
   const settings = stored[SETTINGS_KEY] as { language?: string } | undefined;
-  const language = settings?.language ?? (navigator.language.toLowerCase().startsWith("fa") ? "fa" : "en");
+  const language = settings?.language === "fa" ? "fa" : "en";
   const title = language === "fa"
     ? "ذخیره متن انتخاب‌شده به‌عنوان پرامپت"
     : "Save selection as a new prompt";

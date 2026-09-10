@@ -1,8 +1,9 @@
 import { ChevronDown, ChevronRight, ChevronUp, Folder as FolderIcon, MoreVertical, Pencil, Trash2 } from "lucide-react";
-import { memo, useCallback, useMemo, useState, type CSSProperties, type DragEvent } from "react";
+import { memo, useCallback, useMemo, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import type { DragPayload, Folder, FolderDropPosition, TextDirection, Translator } from "../../shared/types";
 import { isFolderMoveValid, sortedByOrder } from "../../shared/utils";
 import { BidiText } from "./BidiText";
+import { AnchoredContextMenu } from "./AnchoredContextMenu";
 import { writeDragPayload } from "./DragDropTree";
 
 interface FolderTreeProps {
@@ -67,15 +68,16 @@ const FolderMenu = memo(function FolderMenu({
   onMoveStep,
 }: FolderMenuProps) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   return (
     <div className="menu-wrap" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => {
       if (event.key === "Escape") setOpen(false);
     }}>
-      <button aria-expanded={open} aria-haspopup="menu" aria-label={t("moreActions")} className="icon-button compact" onClick={() => setOpen((value) => !value)} type="button">
+      <button aria-expanded={open} aria-haspopup="menu" aria-label={t("moreActions")} className="icon-button compact" onClick={() => setOpen((value) => !value)} ref={triggerRef} type="button">
         <MoreVertical aria-hidden="true" size={16} />
       </button>
       {open && (
-        <div className="context-menu" role="menu">
+        <AnchoredContextMenu anchorRef={triggerRef} onClose={() => setOpen(false)}>
           <button className="menu-button" onClick={() => { setOpen(false); onRename(); }} role="menuitem" type="button">
             <Pencil aria-hidden="true" size={16} /> {t("rename")}
           </button>
@@ -102,17 +104,17 @@ const FolderMenu = memo(function FolderMenu({
                 </option>
               ))}
             </select>
-            <button aria-label={t("moveUp")} className="menu-arrow" disabled={isFirst} onClick={() => onMoveStep(-1)} type="button">
+            <button aria-label={t("moveUp")} className="menu-arrow" disabled={isFirst} onClick={() => { setOpen(false); onMoveStep(-1); }} type="button">
               <ChevronUp aria-hidden="true" size={16} />
             </button>
-            <button aria-label={t("moveDown")} className="menu-arrow" disabled={isLast} onClick={() => onMoveStep(1)} type="button">
+            <button aria-label={t("moveDown")} className="menu-arrow" disabled={isLast} onClick={() => { setOpen(false); onMoveStep(1); }} type="button">
               <ChevronDown aria-hidden="true" size={16} />
             </button>
           </div>
           <button className="menu-button danger-menu" onClick={() => { setOpen(false); onDelete(); }} role="menuitem" type="button">
             <Trash2 aria-hidden="true" size={16} /> {t("delete")}
           </button>
-        </div>
+        </AnchoredContextMenu>
       )}
     </div>
   );
