@@ -1,9 +1,10 @@
-import { memo, useMemo } from "react";
+import { memo, useLayoutEffect, useMemo, useRef } from "react";
 import "katex/dist/katex.min.css";
 import {
   createMarkdownPreviewModel,
   renderMarkdownPreviewHtml,
 } from "../../shared/markdownPreview";
+import { sanitizeRenderedHtml } from "../../shared/sanitizeHtml";
 
 interface ReadonlyMarkdownProps {
   value: string;
@@ -20,11 +21,16 @@ function ReadonlyMarkdownComponent({
     () => renderMarkdownPreviewHtml(createMarkdownPreviewModel(value)),
     [value],
   );
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    containerRef.current?.replaceChildren(sanitizeRenderedHtml(html));
+  }, [html]);
 
   return (
     <div
       className={`markdown-preview ${compact ? "markdown-preview-compact" : ""} ${className}`.trim()}
-      dangerouslySetInnerHTML={{ __html: html }}
+      ref={containerRef}
     />
   );
 }

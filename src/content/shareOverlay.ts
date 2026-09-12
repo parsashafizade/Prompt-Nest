@@ -4,7 +4,35 @@ import {
   type ShareCardImage,
   type ShareCardRenderLine,
 } from "../shared/shareCard";
+import { sanitizeStaticOverlayHtml } from "../shared/sanitizeHtml";
 import type { Language, TextDirection } from "../shared/types";
+
+const SHARE_OVERLAY_MARKUP = `
+  <style>
+    *{box-sizing:border-box}.backdrop{position:fixed;inset:0;display:grid;place-items:center;padding:24px;background:rgba(17,14,21,.54);backdrop-filter:blur(4px);font-family:PromptNestCardPersian,PromptNestCardLatin,sans-serif;color:#302b38}
+    .panel{width:min(860px,96vw);max-height:92vh;display:grid;grid-template-columns:minmax(260px,1fr) 252px;gap:24px;padding:24px;border:1px solid rgba(117,103,143,.16);border-radius:12px;background:#eeebf2;box-shadow:8px 8px 12px rgba(13,10,17,.34),-8px -8px 12px rgba(255,255,255,.14)}
+    .preview{min-width:0;min-height:332px;display:grid;place-items:center;padding:16px;border-radius:12px;box-shadow:inset 5px 5px 12px #d2ced9,inset -5px -5px 12px #fff;overflow:auto}
+    canvas{display:block;max-width:100%;max-height:72vh;border-radius:12px;box-shadow:6px 6px 10px #c9c5d1,-6px -6px 10px #fff;background:#e8e4ed}
+    .controls{display:flex;flex-direction:column;gap:12px}.head{display:flex;align-items:center;gap:8px;margin-bottom:4px}.head h2{flex:1;margin:0;font-size:18px}.icon{width:40px;height:40px;display:grid;place-items:center;border:0;border-radius:10px;background:#eeebf2;color:#302b38;box-shadow:4px 4px 9px #d2ced9,-4px -4px 9px #fff;cursor:pointer;font-size:20px;transition:transform 150ms cubic-bezier(.4,0,.2,1)}.icon:hover{transform:translateY(-1px) scale(1.04)}.icon:active{transform:scale(.94);transition-duration:80ms}.ratios{display:grid;gap:8px;padding:4px;border-radius:12px;box-shadow:inset 3px 3px 7px #d2ced9,inset -3px -3px 7px #fff}.ratio,.action{min-height:40px;padding:8px 16px;border:0;border-radius:10px;background:transparent;color:#5d5666;font:600 13px PromptNestCardPersian,PromptNestCardLatin,sans-serif;cursor:pointer;transition:transform 150ms cubic-bezier(.4,0,.2,1),opacity 150ms cubic-bezier(.4,0,.2,1)}.ratio:hover,.action:hover{transform:translateY(-1px)}.ratio:active,.action:active{transform:scale(.96);transition-duration:80ms}.ratio[aria-pressed=true]{color:#302b38;background:#f4f1f7;box-shadow:3px 3px 7px #d2ced9,-3px -3px 7px #fff}.action{background:#eeebf2;color:#302b38;box-shadow:4px 4px 9px #d2ced9,-4px -4px 9px #fff}.action.primary,.action.primary:hover,.action.primary:active{margin-top:8px;color:#fff;background:#625377}.status{min-height:20px;color:#269264;font:12px PromptNestCardPersian,PromptNestCardLatin,sans-serif;text-align:center}.credit{margin-top:auto;color:#81788a;font:11px PromptNestCardPersian,PromptNestCardLatin,sans-serif;text-align:center}
+    @media(max-width:650px){.panel{max-height:94vh;grid-template-columns:1fr;gap:12px;overflow:auto}.preview{min-height:252px}.controls{min-height:260px}canvas{max-height:52vh}}
+  </style>
+  <div class="backdrop" role="dialog" aria-modal="true">
+    <div class="panel">
+      <div class="preview"><canvas></canvas></div>
+      <div class="controls">
+        <div class="head"><h2></h2><button class="icon close">×</button></div>
+        <div class="ratios" role="group">
+          <button class="ratio" data-ratio="story" aria-pressed="false"></button>
+          <button class="ratio" data-ratio="square" aria-pressed="true"></button>
+          <button class="ratio" data-ratio="wide" aria-pressed="false"></button>
+        </div>
+        <button class="action primary download"></button>
+        <button class="action copy"></button>
+        <div class="status" aria-live="polite"></div>
+        <div class="credit">Prompt Nest · Local only</div>
+      </div>
+    </div>
+  </div>`;
 
 export interface ShareOverlayPayload {
   title: string;
@@ -18,6 +46,7 @@ export interface PreparedShareOverlayPayload {
   bodyLines: ShareCardRenderLine[];
   language: Language;
   images: ShareCardImage[];
+  markup: string;
 }
 
 export function prepareShareOverlayPayload(payload: ShareOverlayPayload): PreparedShareOverlayPayload {
@@ -26,6 +55,7 @@ export function prepareShareOverlayPayload(payload: ShareOverlayPayload): Prepar
     bodyLines: createShareCardRenderLines(payload.content),
     language: payload.language,
     images: payload.images ?? [],
+    markup: sanitizeStaticOverlayHtml(SHARE_OVERLAY_MARKUP),
   };
 }
 
@@ -72,32 +102,8 @@ export async function installPreparedShareOverlay(payload: PreparedShareOverlayP
   const shadow = host.attachShadow({ mode: "closed" });
   const root = document.createElement("div");
   root.dir = isFa ? "rtl" : "ltr";
-  root.innerHTML = `
-    <style>
-      *{box-sizing:border-box}.backdrop{position:fixed;inset:0;display:grid;place-items:center;padding:24px;background:rgba(17,14,21,.54);backdrop-filter:blur(4px);font-family:PromptNestCardPersian,PromptNestCardLatin,sans-serif;color:#302b38}
-      .panel{width:min(860px,96vw);max-height:92vh;display:grid;grid-template-columns:minmax(260px,1fr) 252px;gap:24px;padding:24px;border:1px solid rgba(117,103,143,.16);border-radius:12px;background:#eeebf2;box-shadow:8px 8px 12px rgba(13,10,17,.34),-8px -8px 12px rgba(255,255,255,.14)}
-      .preview{min-width:0;min-height:332px;display:grid;place-items:center;padding:16px;border-radius:12px;box-shadow:inset 5px 5px 12px #d2ced9,inset -5px -5px 12px #fff;overflow:auto}
-      canvas{display:block;max-width:100%;max-height:72vh;border-radius:12px;box-shadow:6px 6px 10px #c9c5d1,-6px -6px 10px #fff;background:#e8e4ed}
-      .controls{display:flex;flex-direction:column;gap:12px}.head{display:flex;align-items:center;gap:8px;margin-bottom:4px}.head h2{flex:1;margin:0;font-size:18px}.icon{width:40px;height:40px;display:grid;place-items:center;border:0;border-radius:10px;background:#eeebf2;color:#302b38;box-shadow:4px 4px 9px #d2ced9,-4px -4px 9px #fff;cursor:pointer;font-size:20px;transition:transform 150ms cubic-bezier(.4,0,.2,1)}.icon:hover{transform:translateY(-1px) scale(1.04)}.icon:active{transform:scale(.94);transition-duration:80ms}.ratios{display:grid;gap:8px;padding:4px;border-radius:12px;box-shadow:inset 3px 3px 7px #d2ced9,inset -3px -3px 7px #fff}.ratio,.action{min-height:40px;padding:8px 16px;border:0;border-radius:10px;background:transparent;color:#5d5666;font:600 13px PromptNestCardPersian,PromptNestCardLatin,sans-serif;cursor:pointer;transition:transform 150ms cubic-bezier(.4,0,.2,1),opacity 150ms cubic-bezier(.4,0,.2,1)}.ratio:hover,.action:hover{transform:translateY(-1px)}.ratio:active,.action:active{transform:scale(.96);transition-duration:80ms}.ratio[aria-pressed=true]{color:#302b38;background:#f4f1f7;box-shadow:3px 3px 7px #d2ced9,-3px -3px 7px #fff}.action{background:#eeebf2;color:#302b38;box-shadow:4px 4px 9px #d2ced9,-4px -4px 9px #fff}.action.primary,.action.primary:hover,.action.primary:active{margin-top:8px;color:#fff;background:#625377}.status{min-height:20px;color:#269264;font:12px PromptNestCardPersian,PromptNestCardLatin,sans-serif;text-align:center}.credit{margin-top:auto;color:#81788a;font:11px PromptNestCardPersian,PromptNestCardLatin,sans-serif;text-align:center}
-      @media(max-width:650px){.panel{max-height:94vh;grid-template-columns:1fr;gap:12px;overflow:auto}.preview{min-height:252px}.controls{min-height:260px}canvas{max-height:52vh}}
-    </style>
-    <div class="backdrop" role="dialog" aria-modal="true">
-      <div class="panel">
-        <div class="preview"><canvas></canvas></div>
-        <div class="controls">
-          <div class="head"><h2></h2><button class="icon close">×</button></div>
-          <div class="ratios" role="group">
-            <button class="ratio" data-ratio="story" aria-pressed="false"></button>
-            <button class="ratio" data-ratio="square" aria-pressed="true"></button>
-            <button class="ratio" data-ratio="wide" aria-pressed="false"></button>
-          </div>
-          <button class="action primary download"></button>
-          <button class="action copy"></button>
-          <div class="status" aria-live="polite"></div>
-          <div class="credit">Prompt Nest · Local only</div>
-        </div>
-      </div>
-    </div>`;
+  const overlayDocument = new DOMParser().parseFromString(payload.markup, "text/html");
+  root.replaceChildren(...overlayDocument.head.childNodes, ...overlayDocument.body.childNodes);
   shadow.appendChild(root);
   root.querySelector<HTMLElement>(".backdrop")!.setAttribute("aria-label", labels.title);
   root.querySelector<HTMLElement>(".head h2")!.textContent = labels.title;

@@ -25,6 +25,7 @@ import {
   renderMathToHtml,
   type MarkdownPreviewRange,
 } from "../../shared/markdownPreview";
+import { sanitizeRenderedHtml } from "../../shared/sanitizeHtml";
 
 interface MarkdownPromptEditorProps {
   value: string;
@@ -173,7 +174,7 @@ class MathWidget extends WidgetType {
     const element = document.createElement(this.displayMode ? "div" : "span");
     element.className = this.displayMode ? "cm-live-math-block" : "cm-live-math-inline";
     element.dir = "ltr";
-    element.innerHTML = renderMathToHtml(this.expression, this.displayMode);
+    element.replaceChildren(sanitizeRenderedHtml(renderMathToHtml(this.expression, this.displayMode)));
     return element;
   }
 

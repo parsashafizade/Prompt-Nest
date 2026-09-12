@@ -2,13 +2,10 @@
   "manifest_version": 3,
   "name": "Prompt Nest",
   "version": "1.0.0",
-  "description": "A private, local-only AI prompt manager — organize, edit, and reuse prompts with Markdown, history, search, and share cards.",
-  "author": "Parsa Shafizade",
-  "homepage_url": "https://github.com/parsashafizade/Prompt-Nest",
+  "description": "A private, local prompt library with Markdown, reusable context, history, search, and share cards.",
   "permissions": ["storage", "activeTab", "scripting", "contextMenus"],
   "background": {
     "service_worker": "background.js",
-    "scripts": ["background.js"],
     "type": "module"
   },
   "action": {
