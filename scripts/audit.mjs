@@ -7,6 +7,12 @@ if (JSON.stringify(manifest.permissions) !== JSON.stringify(expectedPermissions)
   throw new Error("Manifest permissions differ from the approved minimal set.");
 }
 if ("host_permissions" in manifest) throw new Error("host_permissions must not be present.");
+if (
+  manifest.background?.service_worker
+  && !manifest.background?.scripts?.includes(manifest.background.service_worker)
+) {
+  throw new Error("The background service worker must also be listed as the Firefox scripts fallback.");
+}
 if (!manifest.content_security_policy?.extension_pages?.includes("connect-src 'none'")) {
   throw new Error("Extension pages must block outbound connections in CSP.");
 }
@@ -44,6 +50,9 @@ for (const file of executableFiles("dist")) {
   const source = readFileSync(file, "utf8");
   if (forbiddenFetchCalls.some((pattern) => pattern.test(source))) {
     throw new Error(`Unexpected fetch call found in built file ${file}.`);
+  }
+  if (/\.innerHTML\s*=\s*(?!["'`\d])/u.test(source)) {
+    throw new Error(`Dynamic innerHTML assignment found in built file ${file}.`);
   }
 }
 

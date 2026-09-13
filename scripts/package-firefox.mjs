@@ -24,6 +24,16 @@ function distributableFiles(directory) {
     });
 }
 
+function firefoxFileContents(file, archiveName) {
+  if (archiveName !== "manifest.json") return readFileSync(file);
+
+  const manifest = JSON.parse(readFileSync(file, "utf8"));
+  if (manifest.background && typeof manifest.background === "object") {
+    delete manifest.background.service_worker;
+  }
+  return Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
+}
+
 await new Promise((resolveArchive, rejectArchive) => {
   const output = createWriteStream(archivePath);
   const archive = new ZipArchive({
@@ -39,8 +49,9 @@ await new Promise((resolveArchive, rejectArchive) => {
   archive.pipe(output);
 
   for (const file of distributableFiles(distDirectory)) {
-    archive.append(readFileSync(file), {
-      name: relative(distDirectory, file).split(sep).join("/"),
+    const archiveName = relative(distDirectory, file).split(sep).join("/");
+    archive.append(firefoxFileContents(file, archiveName), {
+      name: archiveName,
       date: fixedTimestamp,
       mode: 0o644,
     });
